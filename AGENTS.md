@@ -1,3 +1,5 @@
 # AGENTS
 
-本仓库的项目说明以 [README.md](./README.md) 为准，开发约定以 [CONTRIBUTING.md](./CONTRIBUTING.md) 为准。
+Use [README.md](./README.md) as the source of truth for project documentation.
+
+Use [CONTRIBUTING.md](./CONTRIBUTING.md) as the source of truth for development conventions.

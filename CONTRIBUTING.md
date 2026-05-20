@@ -1,61 +1,61 @@
 # Contributing
 
-本文档面向 ULinkActor 框架开发者。面向框架使用者的介绍、快速开始和能力说明见 [README.md](./README.md)。
+This document is for ULinkActor framework contributors. For user-facing introductions, quick starts, and feature descriptions, see [README.md](./README.md).
 
 ---
 
-# 设计定位
+# Design Positioning
 
-ULinkActor 的核心思想是：
+The core idea of ULinkActor is:
 
 ```text
 message-driven service runtime
 ```
 
-而不是：
+It is not:
 
 ```text
 enterprise distributed actor platform
 ```
 
-设计约束：
+Design constraints:
 
-- 核心极小
-- 单进程优先
-- 一个 actor 一个 mailbox
-- actor 内部串行执行
-- 天然无锁状态
-- 支持 Send
-- 支持 Call<T>
-- 支持 Timer
-- 支持 Backpressure
-- 基于 TPL Dataflow
-- 不引入 MMO 业务概念
-- 不依赖 Unity
-- 不绑定网络协议
+- Keep the core small.
+- Prefer single-process runtime scenarios.
+- One actor owns one mailbox.
+- Each actor processes messages sequentially.
+- Actor state should usually be lock-free.
+- Support Send.
+- Support Call<T>.
+- Support timers.
+- Support backpressure.
+- Build on TPL Dataflow.
+- Do not introduce MMO business concepts into the core.
+- Do not depend on Unity.
+- Do not bind the core to a network protocol.
 
-核心模型来自 skynet：
+The core model comes from skynet:
 
 ```text
 service = mailbox + state + message handler
 ```
 
-每个 actor：
+Each actor:
 
-- 拥有自己的状态
-- 拥有自己的 mailbox
-- 只能通过消息通信
-- 内部顺序执行
+- Owns its state.
+- Owns its mailbox.
+- Communicates only through messages.
+- Processes messages sequentially.
 
-因此同一个 actor 内通常不需要 `lock`、`ConcurrentDictionary` 或 CAS 来保护业务状态。
+Because of this, state inside a single actor usually does not need `lock`, `ConcurrentDictionary`, or CAS-style concurrency protection.
 
 ---
 
-# 当前状态
+# Current Status
 
-v0.1 已开发完成。
+v0.1 is complete.
 
-已包含：
+Included capabilities:
 
 - ActorSystem / ActorRef / ActorId
 - IActor / ActorContext
@@ -77,12 +77,12 @@ v0.1 已开发完成。
 - Named Actor
 - Local Registry
 - Actor Group
-- Unit Test
-- .NET 10 / .slnx 项目结构
+- Unit Tests
+- .NET 10 / .slnx project structure
 
 ---
 
-# 项目结构
+# Project Structure
 
 ```mermaid
 flowchart TB
@@ -116,15 +116,15 @@ flowchart TB
     Observability --> Diagnostics["ULinkActorDiagnostics"]
 ```
 
-`src/ULinkActor.SourceGenerator` 独立提供 typed spawn 扩展方法生成器；`tests/ULinkActor.Tests` 覆盖 runtime 与 source generator 的核心行为。
+`src/ULinkActor.SourceGenerator` provides typed spawn extension method generation. `tests/ULinkActor.Tests` covers core runtime behavior and source generator behavior.
 
 ---
 
-# 工程约定
+# Engineering Conventions
 
 ## Target Framework
 
-仅支持 .NET 10：
+Only .NET 10 is supported:
 
 ```xml
 <TargetFramework>net10.0</TargetFramework>
@@ -132,7 +132,7 @@ flowchart TB
 
 ## Solution
 
-使用 .NET 10 `.slnx`：
+The repository uses the .NET 10 `.slnx` solution format:
 
 ```text
 ULinkActor.slnx
@@ -140,27 +140,27 @@ ULinkActor.slnx
 
 ## Version
 
-当前包版本：
+Current package versions:
 
 ```text
 ULinkActor: 0.1.2
-ULinkActor.SourceGenerator: 0.1.0
+ULinkActor.SourceGenerator: 0.1.1
 ```
 
 ## Repository
 
 [bruce48x/ULinkActor](https://github.com/bruce48x/ULinkActor)
 
-相关项目：
+Related projects:
 
 - [bruce48x/ULinkRPC](https://github.com/bruce48x/ULinkRPC)
 - [bruce48x/ULinkGame](https://github.com/bruce48x/ULinkGame)
 
-## 依赖
+## Dependencies
 
-`ULinkActor` runtime 仅面向 .NET 10，不额外声明 `System.Threading.Tasks.Dataflow` 包引用。
+The `ULinkActor` runtime targets .NET 10 only and does not declare an extra `System.Threading.Tasks.Dataflow` package reference.
 
-`ULinkActor.SourceGenerator` 使用 Roslyn：
+`ULinkActor.SourceGenerator` uses Roslyn:
 
 ```xml
 <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" PrivateAssets="all" />
@@ -168,31 +168,31 @@ ULinkActor.SourceGenerator: 0.1.0
 
 ---
 
-# 测试覆盖
+# Test Coverage
 
-- Send 派发消息
-- Call<T> 返回响应
-- Call<T> 超时
-- mailbox 按发送顺序执行
-- 同一个 actor 不并发执行
-- timer 消息通过 mailbox 串行执行
-- bounded mailbox 产生 backpressure
-- Stop drain 已入队消息
-- stop 后发送消息进入 dead letter
-- per-actor mailbox capacity 覆盖
-- mailbox metrics 快照
-- slow message detection
-- typed actor wrapper
-- ActivitySource tracing
-- named actor / local registry
-- actor group
-- source generator typed spawn extension
+- Send dispatches messages.
+- Call<T> returns responses.
+- Call<T> times out.
+- Mailboxes preserve send order.
+- A single actor does not execute messages concurrently.
+- Timer messages are processed sequentially through the mailbox.
+- Bounded mailboxes produce backpressure.
+- Stop drains already queued messages.
+- Sends after stop go to dead letters.
+- Per-actor mailbox capacity overrides are supported.
+- Mailbox metric snapshots are available.
+- Slow message detection works.
+- Typed actor wrappers work.
+- ActivitySource tracing is emitted.
+- Named actor / local registry behavior works.
+- Actor groups work.
+- Source generator typed spawn extensions are emitted.
 
 ---
 
-# 开发边界
+# Development Boundaries
 
-以下内容不属于 ULinkActor Core：
+The following are not part of ULinkActor Core:
 
 - Cluster
 - Remote Actor
@@ -200,13 +200,13 @@ ULinkActor.SourceGenerator: 0.1.0
 - Actor Persistence
 - Event Sourcing
 - Supervisor Tree
-- MMO 模板
+- MMO templates
 - Gate / Realm / Map / AOI
-- Unity 集成
-- 数据库抽象
+- Unity integration
+- Database abstractions
 - ORM
-- 网络协议
+- Network protocols
 - Transport
 - RPC
 
-这些应由 [ULinkGame](https://github.com/bruce48x/ULinkGame)、[ULinkRPC](https://github.com/bruce48x/ULinkRPC) 或业务层解决。修改 runtime 时不要把这些概念引入 core API。
+These concerns should be handled by [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code. Do not introduce these concepts into the core API when modifying the runtime.
