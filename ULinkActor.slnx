@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ULinkActor.SourceGenerator/ULinkActor.SourceGenerator.csproj" />
+    <Project Path="src/ULinkActor/ULinkActor.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ULinkActor.Tests/ULinkActor.Tests.csproj" />
+  </Folder>
+</Solution>
