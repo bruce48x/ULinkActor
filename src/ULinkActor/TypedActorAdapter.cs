@@ -9,11 +9,11 @@ internal sealed class TypedActorAdapter<TMessage> : IActor
         this.actor = actor;
     }
 
-    public ValueTask OnMessage(ActorContext ctx, object message)
+    public ValueTask OnMessage(ActorContextCore ctx, object message)
     {
         if (message is TMessage typedMessage)
         {
-            return actor.OnMessage(ctx, typedMessage);
+            return actor.OnMessage(new ActorContext<TMessage>(ctx), typedMessage);
         }
 
         throw new InvalidOperationException(

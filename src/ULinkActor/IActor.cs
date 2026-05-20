@@ -1,11 +1,11 @@
 namespace ULinkActor;
 
-public interface IActor
+internal interface IActor
 {
-    ValueTask OnMessage(ActorContext ctx, object message);
+    ValueTask OnMessage(ActorContextCore ctx, object message);
 }
 
-public interface IActor<in TMessage>
+public interface IActor<TMessage>
 {
-    ValueTask OnMessage(ActorContext ctx, TMessage message);
+    ValueTask OnMessage(ActorContext<TMessage> ctx, TMessage message);
 }

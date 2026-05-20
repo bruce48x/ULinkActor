@@ -56,7 +56,9 @@ public sealed class TypedActorSpawnGenerator : IIncrementalGenerator
             return null;
         }
 
-        return GetTypedActorMessage(type) is null ? null : type;
+        INamedTypeSymbol? messageType = GetTypedActorMessage(type);
+
+        return messageType is null || messageType.TypeKind == TypeKind.Error ? null : type;
     }
 
     private static INamedTypeSymbol? GetTypedActorMessage(INamedTypeSymbol actorType)

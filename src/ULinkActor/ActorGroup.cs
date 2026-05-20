@@ -1,6 +1,6 @@
 namespace ULinkActor;
 
-public sealed class ActorGroup
+internal sealed class ActorGroup
 {
     private readonly ActorRef[] members;
 
@@ -13,9 +13,9 @@ public sealed class ActorGroup
             .ToArray();
     }
 
-    public int Count => members.Length;
+    internal int Count => members.Length;
 
-    public IReadOnlyList<ActorRef> Members => members;
+    internal IReadOnlyList<ActorRef> Members => members;
 
     public async ValueTask Send(object message, CancellationToken cancellationToken = default)
     {

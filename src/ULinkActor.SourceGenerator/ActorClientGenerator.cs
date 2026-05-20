@@ -243,11 +243,17 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
 
         string interfaceName = clientType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string clientName = GetClientName(clientType);
+        string messageInterfaceName = clientName + "Message";
         string implementationName = clientName + "ActorClient";
         string extensionName = clientName + "ActorClientExtensions";
         string extensionMethodName = "As" + clientName;
 
         IMethodSymbol[] methods = GetClientMethods(clientType);
+
+        source.AppendLine($"public interface {messageInterfaceName}");
+        source.AppendLine("{");
+        source.AppendLine("}");
+        source.AppendLine();
 
         foreach (IMethodSymbol method in methods)
         {
@@ -255,7 +261,7 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
 
             if (method.Parameters.Length == 0)
             {
-                source.AppendLine($"public readonly record struct {requestName};");
+                source.AppendLine($"public readonly record struct {requestName} : {messageInterfaceName};");
             }
             else
             {
@@ -274,7 +280,7 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
                     source.Append(ToPropertyName(parameter.Name));
                 }
 
-                source.AppendLine(");");
+                source.AppendLine($") : {messageInterfaceName};");
             }
         }
 
@@ -285,10 +291,10 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
 
         source.AppendLine($"internal sealed class {implementationName} : {interfaceName}");
         source.AppendLine("{");
-        source.AppendLine("    private readonly global::ULinkActor.ActorRef actor;");
+        source.AppendLine($"    private readonly global::ULinkActor.ActorRef<{messageInterfaceName}> actor;");
         source.AppendLine("    private readonly global::System.TimeSpan callTimeout;");
         source.AppendLine();
-        source.AppendLine($"    public {implementationName}(global::ULinkActor.ActorRef actor, global::System.TimeSpan callTimeout)");
+        source.AppendLine($"    public {implementationName}(global::ULinkActor.ActorRef<{messageInterfaceName}> actor, global::System.TimeSpan callTimeout)");
         source.AppendLine("    {");
         source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(actor);");
         source.AppendLine();
@@ -311,15 +317,9 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
 
         source.AppendLine($"public static class {extensionName}");
         source.AppendLine("{");
-        source.AppendLine($"    public static {interfaceName} {extensionMethodName}(this global::ULinkActor.ActorRef actor, global::System.TimeSpan callTimeout)");
+        source.AppendLine($"    public static {interfaceName} {extensionMethodName}(this global::ULinkActor.ActorRef<{messageInterfaceName}> actor, global::System.TimeSpan callTimeout)");
         source.AppendLine("    {");
         source.AppendLine($"        return new {implementationName}(actor, callTimeout);");
-        source.AppendLine("    }");
-        source.AppendLine();
-        source.AppendLine($"    public static {interfaceName} {extensionMethodName}<TMessage>(this global::ULinkActor.ActorRef<TMessage> actor, global::System.TimeSpan callTimeout)");
-        source.AppendLine("    {");
-        source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(actor);");
-        source.AppendLine($"        return new {implementationName}(actor.Untyped, callTimeout);");
         source.AppendLine("    }");
         source.AppendLine("}");
         source.AppendLine();

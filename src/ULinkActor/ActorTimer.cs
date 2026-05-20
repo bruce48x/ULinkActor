@@ -6,7 +6,7 @@ internal sealed class ActorTimer : IDisposable
     private readonly object message;
     private readonly Timer timer;
 
-    public ActorTimer(ActorRef target, object message, TimeSpan dueTime, TimeSpan period)
+    internal ActorTimer(ActorRef target, object message, TimeSpan dueTime, TimeSpan period)
     {
         this.target = target;
         this.message = message;

@@ -14,7 +14,7 @@ Install the runtime package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.7" />
+  <PackageReference Include="ULinkActor" Version="0.1.8" />
 </ItemGroup>
 ```
 
@@ -35,7 +35,7 @@ public sealed class RoomActor : IActor<RoomMessage>
 {
     private readonly HashSet<long> players = new();
 
-    public ValueTask OnMessage(ActorContext ctx, RoomMessage message)
+    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
     {
         if (message is JoinRoom join)
         {
@@ -98,10 +98,10 @@ public interface IRoomActorClient
 }
 ```
 
-The generator emits public request records and an `ActorRef` extension method:
+The generator emits a public client message interface, public request records that implement it, and an `ActorRef<TMessage>` extension method:
 
 ```csharp
-ActorRef roomActor = system.Spawn(new RoomActor());
+ActorRef<RoomActorClientMessage> roomActor = system.Spawn<RoomActorClientMessage>(new RoomActor());
 IRoomActorClient room = roomActor.AsRoomActorClient(TimeSpan.FromSeconds(1));
 
 await room.Join(10001);
@@ -110,17 +110,17 @@ int count = await room.GetPlayerCount();
 
 The generated wrapper lowers:
 
-- `ValueTask` methods into `ActorRef.Send(...)`.
-- `ValueTask<T>` methods into `ActorRef.Call<T>(..., callTimeout)`.
+- `ValueTask` methods into `ActorRef<TMessage>.Send(...)`.
+- `ValueTask<T>` methods into `ActorRef<TMessage>.Call<T>(..., callTimeout)`.
 
 The actor handles the generated request record types:
 
 ```csharp
-public sealed class RoomActor : IActor
+internal sealed class RoomActor : IActor<RoomActorClientMessage>
 {
     private readonly HashSet<long> players = new();
 
-    public ValueTask OnMessage(ActorContext ctx, object message)
+    public ValueTask OnMessage(ActorContext<RoomActorClientMessage> ctx, RoomActorClientMessage message)
     {
         switch (message)
         {
@@ -164,14 +164,14 @@ The same analyzer asset also reports common unsafe actor usage:
 | --- | --- | --- |
 | `ULA001` | Warning | Reports `ctx.Self.Call(...)` inside an actor because calling the current actor through its own mailbox can deadlock. |
 | `ULA002` | Warning | Reports `.Wait()` and `.Result` on task-like values inside actor types because blocking can stall the mailbox. |
-| `ULA003` | Warning | Reports discarded `ActorRef.Call<T>` and `ActorSystem.Call<T>` results because request/response calls should be awaited, returned, or stored. |
+| `ULA003` | Warning | Reports discarded `ActorRef<TMessage>.Call<T>` results because request/response calls should be awaited, returned, or stored. |
 
 ## Design Direction
 
 Source generation is the preferred path for making ULinkActor easier to use without increasing runtime cost. Future generated APIs should keep the same boundary:
 
 - Generate static, IDE-visible C# source.
-- Lower higher-level APIs into `ActorSystem`, `ActorRef`, `Send`, and `Call<T>`.
+- Lower higher-level APIs into `ActorSystem`, `ActorRef<TMessage>`, `Send`, and `Call<T>`.
 - Keep Roslyn references inside the generator project.
 - Do not add runtime reflection to actor discovery, dispatch, generated proxy calls, or response binding.
 

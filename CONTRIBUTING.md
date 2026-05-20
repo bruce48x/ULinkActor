@@ -61,7 +61,7 @@ Source generation is considered part of the intended ULinkActor developer experi
 The runtime model remains:
 
 ```text
-typed generated API -> ActorRef / ActorSystem -> mailbox -> actor handler
+typed generated API -> ActorRef<TMessage> / ActorSystem -> mailbox -> actor handler
 ```
 
 Generated code should call normal public runtime APIs such as `Spawn`, `Send`, and `Call<T>`. It should not depend on runtime method lookup, dynamic invocation, dynamic proxy libraries, or reflection-driven dispatch.
@@ -135,8 +135,8 @@ v0.1 is complete.
 
 Included capabilities:
 
-- ActorSystem / ActorRef / ActorId
-- IActor / ActorContext
+- ActorSystem / ActorRef<TMessage> / ActorId
+- IActor<TMessage> / ActorContext<TMessage>
 - Send
 - Call<T>
 - Timer
@@ -170,11 +170,11 @@ flowchart TB
 
     Runtime --> PublicApi["Public API"]
     PublicApi --> ActorSystem["ActorSystem"]
-    PublicApi --> ActorRef["ActorRef / ActorRef<TMessage>"]
+    PublicApi --> ActorRef["ActorRef<TMessage>"]
     PublicApi --> ActorId["ActorId"]
-    PublicApi --> ActorContract["IActor / IActor<TMessage>"]
-    PublicApi --> ActorContext["ActorContext"]
-    PublicApi --> ActorGroup["ActorGroup / ActorGroup<TMessage>"]
+    PublicApi --> ActorContract["IActor<TMessage>"]
+    PublicApi --> ActorContext["ActorContext<TMessage>"]
+    PublicApi --> ActorGroup["ActorGroup<TMessage>"]
 
     Runtime --> MailboxRuntime["Mailbox Runtime"]
     MailboxRuntime --> ActorCell["ActorCell"]
@@ -223,7 +223,7 @@ ULinkActor.slnx
 Current package versions:
 
 ```text
-ULinkActor: 0.1.7
+ULinkActor: 0.1.8
 ULinkActor.SourceGenerator: internal compile-time project, not a standalone NuGet package
 ```
 

@@ -1,6 +1,6 @@
 namespace ULinkActor;
 
-public sealed class ActorRef
+internal sealed class ActorRef
 {
     private readonly ActorSystem system;
 
@@ -52,8 +52,6 @@ public sealed class ActorRef<TMessage>
     }
 
     public ActorId Id => inner.Id;
-
-    public ActorRef Untyped => inner;
 
     public ValueTask Send(TMessage message, CancellationToken cancellationToken = default)
     {

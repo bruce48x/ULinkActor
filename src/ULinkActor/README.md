@@ -8,24 +8,26 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.7" />
+  <PackageReference Include="ULinkActor" Version="0.1.8" />
 </ItemGroup>
 ```
 
 ## Quick Start
 
-Define a message and an actor:
+Define a message family and an actor:
 
 ```csharp
 using ULinkActor;
 
-public readonly record struct JoinRoom(long PlayerId);
+public abstract record RoomMessage;
 
-public sealed class RoomActor : IActor
+public sealed record JoinRoom(long PlayerId) : RoomMessage;
+
+public sealed class RoomActor : IActor<RoomMessage>
 {
     private readonly HashSet<long> players = new();
 
-    public ValueTask OnMessage(ActorContext ctx, object message)
+    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
     {
         if (message is JoinRoom join)
         {
@@ -44,7 +46,7 @@ using ULinkActor;
 
 using ActorSystem system = new();
 
-ActorRef room = system.Spawn(new RoomActor());
+ActorRef<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
 
 await room.Send(new JoinRoom(10001));
 ```
@@ -54,13 +56,13 @@ await room.Send(new JoinRoom(10001));
 Use `Call<T>` when the sender needs a response:
 
 ```csharp
-public readonly record struct GetPlayerCount;
+public sealed record GetPlayerCount : RoomMessage;
 
-public sealed class RoomActor : IActor
+public sealed class RoomActor : IActor<RoomMessage>
 {
     private readonly HashSet<long> players = new();
 
-    public ValueTask OnMessage(ActorContext ctx, object message)
+    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
     {
         if (message is GetPlayerCount)
         {
@@ -76,7 +78,7 @@ int count = await room.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
 
 ## Typed Actors
 
-Use `IActor<TMessage>` and `ActorRef<TMessage>` when you want message type checking at the call site:
+ULinkActor requires typed actors. Use a shared message base type or interface when one actor handles multiple command records:
 
 ```csharp
 public abstract record RoomMessage;
@@ -87,7 +89,7 @@ public sealed class RoomActor : IActor<RoomMessage>
 {
     private readonly HashSet<long> players = new();
 
-    public ValueTask OnMessage(ActorContext ctx, RoomMessage message)
+    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
     {
         if (message is JoinRoom join)
         {
@@ -117,7 +119,7 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - `Call<T>` supports request/response workflows.
 - Timer messages enter the actor mailbox and follow the same sequential execution rule.
 - Bounded mailbox capacity provides backpressure.
-- Named actors can be registered and resolved inside an `ActorSystem`.
+- Named actors can be registered and resolved inside an `ActorSystem`; lookup validates the expected message type.
 - Actor groups support local broadcast and batch stop operations.
 - Mailbox metrics, slow message detection, dead letters, and .NET `ActivitySource` tracing are available for diagnostics.
 

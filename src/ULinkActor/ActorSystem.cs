@@ -36,23 +36,6 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         this.options = options;
     }
 
-    public ActorRef Spawn(IActor actor)
-    {
-        return Spawn(actor, null);
-    }
-
-    public ActorRef Spawn(string name, IActor actor)
-    {
-        return Spawn(name, actor, null);
-    }
-
-    public ActorRef Spawn(string name, IActor actor, ActorSpawnOptions? spawnOptions)
-    {
-        ValidateActorName(name);
-
-        return SpawnCore(actor, spawnOptions, name);
-    }
-
     public ActorRef<TMessage> Spawn<TMessage>(IActor<TMessage> actor)
     {
         return Spawn(actor, null);
@@ -71,7 +54,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         ValidateActorName(name);
         ArgumentNullException.ThrowIfNull(actor);
 
-        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), spawnOptions, name);
+        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, name);
         return new ActorRef<TMessage>(actorRef);
     }
 
@@ -79,19 +62,15 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), spawnOptions, null);
+        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, null);
         return new ActorRef<TMessage>(actorRef);
     }
 
-    public ActorRef Spawn(IActor actor, ActorSpawnOptions? spawnOptions)
-    {
-        return SpawnCore(actor, spawnOptions, null);
-    }
-
-    private ActorRef SpawnCore(IActor actor, ActorSpawnOptions? spawnOptions, string? name)
+    private ActorRef SpawnCore(IActor actor, Type messageType, ActorSpawnOptions? spawnOptions, string? name)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(messageType);
 
         int mailboxCapacity = spawnOptions?.MailboxCapacity ?? options.MailboxCapacity;
 
@@ -102,7 +81,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         ActorId id = new(Interlocked.Increment(ref nextActorId));
         ActorRef actorRef = new(this, id);
-        ActorCell cell = new(this, actorRef, actor, mailboxCapacity, options.SlowMessageThreshold, name);
+        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, name);
 
         if (!actors.TryAdd(id, cell))
         {
@@ -119,7 +98,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         return actorRef;
     }
 
-    public async ValueTask Send(ActorId target, object message, CancellationToken cancellationToken = default)
+    internal async ValueTask Send(ActorId target, object message, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(message);
@@ -137,7 +116,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         }
     }
 
-    public async ValueTask<TResponse> Call<TResponse>(
+    internal async ValueTask<TResponse> Call<TResponse>(
         ActorId target,
         object request,
         TimeSpan timeout,
@@ -215,7 +194,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         await cell.StopAsync().ConfigureAwait(false);
     }
 
-    public ValueTask Stop(ActorRef actorRef)
+    internal ValueTask Stop(ActorRef actorRef)
     {
         ArgumentNullException.ThrowIfNull(actorRef);
 
@@ -242,14 +221,14 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         return cell.GetMailboxMetrics();
     }
 
-    public MailboxMetrics GetMailboxMetrics(ActorRef actorRef)
+    internal MailboxMetrics GetMailboxMetrics(ActorRef actorRef)
     {
         ArgumentNullException.ThrowIfNull(actorRef);
 
         return GetMailboxMetrics(actorRef.Id);
     }
 
-    public bool TryGetActor(string name, out ActorRef? actorRef)
+    private bool TryGetActor(string name, out ActorRef? actorRef)
     {
         ValidateActorName(name);
 
@@ -265,7 +244,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
     public bool TryGetActor<TMessage>(string name, out ActorRef<TMessage>? actorRef)
     {
-        if (TryGetActor(name, out ActorRef? untyped))
+        if (TryGetActor(name, typeof(TMessage), out ActorRef? untyped))
         {
             actorRef = new ActorRef<TMessage>(untyped!);
             return true;
@@ -273,16 +252,6 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         actorRef = null;
         return false;
-    }
-
-    public ActorRef GetActor(string name)
-    {
-        if (TryGetActor(name, out ActorRef? actorRef))
-        {
-            return actorRef!;
-        }
-
-        throw new InvalidOperationException($"Actor name '{name}' does not exist.");
     }
 
     public ActorRef<TMessage> GetActor<TMessage>(string name)
@@ -293,19 +262,6 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         }
 
         throw new InvalidOperationException($"Actor name '{name}' does not exist.");
-    }
-
-    public ActorGroup CreateGroup(params ActorRef[] actorRefs)
-    {
-        return CreateGroup((IEnumerable<ActorRef>)actorRefs);
-    }
-
-    public ActorGroup CreateGroup(IEnumerable<ActorRef> actorRefs)
-    {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        ArgumentNullException.ThrowIfNull(actorRefs);
-
-        return new ActorGroup(actorRefs);
     }
 
     public ActorGroup<TMessage> CreateGroup<TMessage>(params ActorRef<TMessage>[] actorRefs)
@@ -334,6 +290,26 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         }
 
         return cell;
+    }
+
+    private bool TryGetActor(string name, Type messageType, out ActorRef? actorRef)
+    {
+        if (TryGetActor(name, out ActorRef? untyped))
+        {
+            ActorCell cell = GetActor(untyped!.Id);
+
+            if (cell.MessageType != messageType)
+            {
+                throw new InvalidOperationException(
+                    $"Actor name '{name}' was registered for message type {cell.MessageType.FullName}, not {messageType.FullName}.");
+            }
+
+            actorRef = untyped;
+            return true;
+        }
+
+        actorRef = null;
+        return false;
     }
 
     private ActorCell GetActorForDelivery(ActorId target, object message)

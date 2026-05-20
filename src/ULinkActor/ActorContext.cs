@@ -1,11 +1,11 @@
 namespace ULinkActor;
 
-public sealed class ActorContext
+internal sealed class ActorContextCore
 {
     private readonly ActorCell cell;
     private readonly Envelope envelope;
 
-    internal ActorContext(ActorSystem system, ActorRef self, ActorCell cell, Envelope envelope)
+    internal ActorContextCore(ActorSystem system, ActorRef self, ActorCell cell, Envelope envelope)
     {
         System = system;
         Self = self;
@@ -13,11 +13,11 @@ public sealed class ActorContext
         this.envelope = envelope;
     }
 
-    public ActorSystem System { get; }
+    internal ActorSystem System { get; }
 
-    public ActorRef Self { get; }
+    internal ActorRef Self { get; }
 
-    public bool HasPendingResponse => envelope.Response is not null;
+    internal bool HasPendingResponse => envelope.Response is not null;
 
     public void Respond<TResponse>(TResponse response)
     {
@@ -46,5 +46,46 @@ public sealed class ActorContext
         ActorTimer timer = new(Self, message, dueTime, period);
         cell.AddTimer(timer);
         return timer;
+    }
+}
+
+public sealed class ActorContext<TMessage>
+{
+    private readonly ActorContextCore inner;
+
+    internal ActorContext(ActorContextCore inner)
+    {
+        this.inner = inner;
+        Self = new ActorRef<TMessage>(inner.Self);
+    }
+
+    public ActorSystem System => inner.System;
+
+    public ActorRef<TMessage> Self { get; }
+
+    public bool HasPendingResponse => inner.HasPendingResponse;
+
+    public void Respond<TResponse>(TResponse response)
+    {
+        inner.Respond(response);
+    }
+
+    public bool TryRespond<TResponse>(TResponse response)
+    {
+        return inner.TryRespond(response);
+    }
+
+    public IDisposable ScheduleOnce(TMessage message, TimeSpan dueTime)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        return inner.ScheduleOnce(message, dueTime);
+    }
+
+    public IDisposable ScheduleRepeated(TMessage message, TimeSpan dueTime, TimeSpan period)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        return inner.ScheduleRepeated(message, dueTime, period);
     }
 }

@@ -9,7 +9,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new();
         ProbeActor actor = new();
-        ActorRef actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor);
 
         await actorRef.Send("hello");
 
@@ -20,7 +20,7 @@ public sealed class ActorSystemTests
     public async Task Call_returns_actor_response()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
         string response = await actorRef.Call<string>("ping", TimeSpan.FromSeconds(1));
 
@@ -31,7 +31,7 @@ public sealed class ActorSystemTests
     public async Task Call_times_out_when_actor_does_not_respond()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new IgnoringActor());
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
             await actorRef.Call<string>("ping", TimeSpan.FromMilliseconds(20)));
@@ -41,7 +41,7 @@ public sealed class ActorSystemTests
     public async Task Mailbox_processes_messages_in_send_order()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new OrderingActor());
+        ActorRef<object> actorRef = system.Spawn(new OrderingActor());
 
         for (int i = 0; i < 64; i++)
         {
@@ -57,7 +57,7 @@ public sealed class ActorSystemTests
     public async Task Mailbox_never_executes_same_actor_concurrently()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new ConcurrencyProbeActor());
+        ActorRef<object> actorRef = system.Spawn(new ConcurrencyProbeActor());
 
         Task[] sends = Enumerable.Range(0, 32)
             .Select(i => actorRef.Send(i).AsTask())
@@ -74,7 +74,7 @@ public sealed class ActorSystemTests
     public async Task Timer_messages_are_dispatched_through_mailbox()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new TimerActor());
+        ActorRef<object> actorRef = system.Spawn(new TimerActor());
 
         await actorRef.Send(new StartTimer());
         await Task.Delay(80);
@@ -89,7 +89,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 1 });
         BlockingActor actor = new();
-        ActorRef actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor);
 
         await actorRef.Send("first");
 
@@ -107,7 +107,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 1 });
         BlockingActor actor = new();
-        ActorRef actorRef = system.Spawn(actor, new ActorSpawnOptions { MailboxCapacity = 2 });
+        ActorRef<object> actorRef = system.Spawn(actor, new ActorSpawnOptions { MailboxCapacity = 2 });
 
         await actorRef.Send("first");
         await actorRef.Send("second");
@@ -127,7 +127,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 2 });
         BlockingActor actor = new();
-        ActorRef actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor);
 
         await actorRef.Send("first");
         await actorRef.Send("second");
@@ -154,7 +154,7 @@ public sealed class ActorSystemTests
 
         TaskCompletionSource<SlowMessage> detected = new(TaskCreationOptions.RunContinuationsAsynchronously);
         system.SlowMessageDetected += message => detected.TrySetResult(message);
-        ActorRef actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30)));
+        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30)));
 
         await actorRef.Send("slow");
 
@@ -214,7 +214,7 @@ public sealed class ActorSystemTests
         ActivitySource.AddActivityListener(listener);
 
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
         string response = await actorRef.Call<string>("trace-me", TimeSpan.FromSeconds(1));
         Activity activity = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -230,9 +230,9 @@ public sealed class ActorSystemTests
     public async Task Named_actor_can_be_resolved_and_used()
     {
         using ActorSystem system = new();
-        ActorRef spawned = system.Spawn("echo", new EchoActor());
+        ActorRef<object> spawned = system.Spawn("echo", new EchoActor());
 
-        ActorRef resolved = system.GetActor("echo");
+        ActorRef<object> resolved = system.GetActor<object>("echo");
         string response = await resolved.Call<string>("named", TimeSpan.FromSeconds(1));
 
         Assert.Equal(spawned.Id, resolved.Id);
@@ -253,11 +253,11 @@ public sealed class ActorSystemTests
     public async Task Stop_by_name_removes_named_actor_from_registry()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn("echo", new EchoActor());
+        ActorRef<object> actorRef = system.Spawn("echo", new EchoActor());
 
         await system.Stop("echo");
 
-        Assert.False(system.TryGetActor("echo", out _));
+        Assert.False(system.TryGetActor<object>("echo", out _));
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await actorRef.Send("late"));
     }
@@ -277,12 +277,21 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public void Named_actor_resolution_rejects_wrong_message_type()
+    {
+        using ActorSystem system = new();
+        system.Spawn<CounterMessage>("counter", new CounterActor());
+
+        Assert.Throws<InvalidOperationException>(() => system.GetActor<object>("counter"));
+    }
+
+    [Fact]
     public async Task Actor_group_broadcasts_send_to_members()
     {
         using ActorSystem system = new();
-        ActorRef first = system.Spawn(new OrderingActor());
-        ActorRef second = system.Spawn(new OrderingActor());
-        ActorGroup group = system.CreateGroup(first, second);
+        ActorRef<object> first = system.Spawn(new OrderingActor());
+        ActorRef<object> second = system.Spawn(new OrderingActor());
+        ActorGroup<object> group = system.CreateGroup(first, second);
 
         await group.Send(7);
 
@@ -294,8 +303,8 @@ public sealed class ActorSystemTests
     public async Task Actor_group_deduplicates_members()
     {
         using ActorSystem system = new();
-        ActorRef actorRef = system.Spawn(new OrderingActor());
-        ActorGroup group = system.CreateGroup(actorRef, actorRef);
+        ActorRef<object> actorRef = system.Spawn(new OrderingActor());
+        ActorGroup<object> group = system.CreateGroup(actorRef, actorRef);
 
         await group.Send(1);
 
@@ -309,9 +318,9 @@ public sealed class ActorSystemTests
     public async Task Actor_group_stops_all_members()
     {
         using ActorSystem system = new();
-        ActorRef first = system.Spawn(new IgnoringActor());
-        ActorRef second = system.Spawn(new IgnoringActor());
-        ActorGroup group = system.CreateGroup(first, second);
+        ActorRef<object> first = system.Spawn(new IgnoringActor());
+        ActorRef<object> second = system.Spawn(new IgnoringActor());
+        ActorGroup<object> group = system.CreateGroup(first, second);
 
         await group.Stop();
 
@@ -351,7 +360,8 @@ public sealed class ActorSystemTests
     public async Task Source_generator_creates_actor_client_proxy()
     {
         using ActorSystem system = new();
-        ActorRef counterActor = system.Spawn(new GeneratedCounterClientActor());
+        ActorRef<GeneratedCounterClientMessage> counterActor = system.Spawn<GeneratedCounterClientMessage>(
+            new GeneratedCounterClientActor());
         IGeneratedCounterClient counter = counterActor.AsGeneratedCounterClient(TimeSpan.FromSeconds(1));
 
         await counter.Add(11);
@@ -365,7 +375,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new();
         RecordingActor actor = new();
-        ActorRef actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor);
 
         for (int i = 0; i < 16; i++)
         {
@@ -383,7 +393,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         List<DeadLetter> deadLetters = new();
         system.DeadLetterPublished += deadLetters.Add;
-        ActorRef actorRef = system.Spawn(new IgnoringActor());
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
 
         await actorRef.Stop();
 
@@ -396,12 +406,12 @@ public sealed class ActorSystemTests
         Assert.Equal("Actor does not exist.", deadLetter.Reason);
     }
 
-    private sealed class ProbeActor : IActor
+    private sealed class ProbeActor : IActor<object>
     {
         private readonly Queue<object> messages = new();
         private readonly SemaphoreSlim available = new(0);
 
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             messages.Enqueue(message);
             available.Release();
@@ -415,28 +425,28 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class EchoActor : IActor
+    private sealed class EchoActor : IActor<object>
     {
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             ctx.Respond(message);
             return ValueTask.CompletedTask;
         }
     }
 
-    private sealed class IgnoringActor : IActor
+    private sealed class IgnoringActor : IActor<object>
     {
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             return ValueTask.CompletedTask;
         }
     }
 
-    private sealed class OrderingActor : IActor
+    private sealed class OrderingActor : IActor<object>
     {
         private readonly List<int> values = new();
 
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             switch (message)
             {
@@ -452,12 +462,12 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class ConcurrencyProbeActor : IActor
+    private sealed class ConcurrencyProbeActor : IActor<object>
     {
         private int active;
         private int maxConcurrency;
 
-        public async ValueTask OnMessage(ActorContext ctx, object message)
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             switch (message)
             {
@@ -474,12 +484,12 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class TimerActor : IActor
+    private sealed class TimerActor : IActor<object>
     {
         private int ticks;
         private IDisposable? timer;
 
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             switch (message)
             {
@@ -499,11 +509,11 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class BlockingActor : IActor
+    private sealed class BlockingActor : IActor<object>
     {
         private readonly TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async ValueTask OnMessage(ActorContext ctx, object message)
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             await gate.Task;
         }
@@ -514,13 +524,13 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class RecordingActor : IActor
+    private sealed class RecordingActor : IActor<object>
     {
         private readonly List<int> values = new();
 
         public IReadOnlyList<int> Values => values;
 
-        public ValueTask OnMessage(ActorContext ctx, object message)
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             if (message is int value)
             {
@@ -531,9 +541,9 @@ public sealed class ActorSystemTests
         }
     }
 
-    private sealed class SlowActor(TimeSpan delay) : IActor
+    private sealed class SlowActor(TimeSpan delay) : IActor<object>
     {
-        public async ValueTask OnMessage(ActorContext ctx, object message)
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             await Task.Delay(delay);
         }
@@ -543,7 +553,7 @@ public sealed class ActorSystemTests
     {
         private int value;
 
-        public ValueTask OnMessage(ActorContext ctx, CounterMessage message)
+        public ValueTask OnMessage(ActorContext<CounterMessage> ctx, CounterMessage message)
         {
             switch (message)
             {

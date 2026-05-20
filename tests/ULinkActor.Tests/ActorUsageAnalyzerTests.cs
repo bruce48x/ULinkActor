@@ -16,9 +16,9 @@ public sealed class ActorUsageAnalyzerTests
             using System.Threading.Tasks;
             using ULinkActor;
 
-            public sealed class BadActor : IActor
+            public sealed class BadActor : IActor<object>
             {
-                public async ValueTask OnMessage(ActorContext ctx, object message)
+                public async ValueTask OnMessage(ActorContext<object> ctx, object message)
                 {
                     await ctx.Self.Call<string>(message, TimeSpan.FromSeconds(1));
                 }
@@ -38,9 +38,9 @@ public sealed class ActorUsageAnalyzerTests
             using System.Threading.Tasks;
             using ULinkActor;
 
-            public sealed class BadActor : IActor
+            public sealed class BadActor : IActor<object>
             {
-                public ValueTask OnMessage(ActorContext ctx, object message)
+                public ValueTask OnMessage(ActorContext<object> ctx, object message)
                 {
                     Task.CompletedTask.Wait();
                     _ = Task.FromResult(1).Result;
@@ -86,10 +86,10 @@ public sealed class ActorUsageAnalyzerTests
 
             public sealed class RegularType
             {
-                public void Run(ActorRef actor, ActorSystem system, ActorId id)
+                public void Run(ActorRef<object> actor)
                 {
                     actor.Call<string>("ping", TimeSpan.FromSeconds(1));
-                    _ = system.Call<string>(id, "ping", TimeSpan.FromSeconds(1));
+                    _ = actor.Call<string>("ping", TimeSpan.FromSeconds(1));
                 }
             }
             """;
@@ -111,7 +111,7 @@ public sealed class ActorUsageAnalyzerTests
 
             public sealed class RegularType
             {
-                public async ValueTask<string> Run(ActorRef actor)
+                public async ValueTask<string> Run(ActorRef<object> actor)
                 {
                     ValueTask<string> pending = actor.Call<string>("ping", TimeSpan.FromSeconds(1));
                     return await pending;

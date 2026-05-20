@@ -15,6 +15,7 @@ internal sealed class ActorCell
         ActorSystem system,
         ActorRef self,
         IActor actor,
+        Type messageType,
         int mailboxCapacity,
         TimeSpan? slowMessageThreshold,
         string? name)
@@ -22,20 +23,23 @@ internal sealed class ActorCell
         this.system = system;
         Self = self;
         this.actor = actor;
+        MessageType = messageType;
         this.slowMessageThreshold = slowMessageThreshold;
         Name = name;
         Mailbox = new Mailbox(Dispatch, mailboxCapacity);
     }
 
-    public ActorRef Self { get; }
+    internal ActorRef Self { get; }
 
-    public string? Name { get; }
+    internal Type MessageType { get; }
 
-    public Mailbox Mailbox { get; }
+    internal string? Name { get; }
 
-    public Task Completion => Mailbox.Completion;
+    internal Mailbox Mailbox { get; }
 
-    public bool IsStopping => Volatile.Read(ref stopping) != 0;
+    internal Task Completion => Mailbox.Completion;
+
+    internal bool IsStopping => Volatile.Read(ref stopping) != 0;
 
     public MailboxMetrics GetMailboxMetrics()
     {
@@ -79,7 +83,7 @@ internal sealed class ActorCell
 
     private async ValueTask Dispatch(Envelope envelope)
     {
-        ActorContext context = new(system, Self, this, envelope);
+        ActorContextCore context = new(system, Self, this, envelope);
         long startedAt = slowMessageThreshold is null ? 0 : Stopwatch.GetTimestamp();
         string messageType = envelope.Message.GetType().FullName ?? envelope.Message.GetType().Name;
 

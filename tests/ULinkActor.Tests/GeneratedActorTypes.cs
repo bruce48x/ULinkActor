@@ -10,7 +10,7 @@ public sealed class GeneratedCounterActor : IActor<GeneratedCounterMessage>
 {
     private int value;
 
-    public ValueTask OnMessage(ActorContext ctx, GeneratedCounterMessage message)
+    public ValueTask OnMessage(ActorContext<GeneratedCounterMessage> ctx, GeneratedCounterMessage message)
     {
         switch (message)
         {
@@ -34,11 +34,11 @@ public interface IGeneratedCounterClient
     ValueTask<int> GetCounter();
 }
 
-public sealed class GeneratedCounterClientActor : IActor
+internal sealed class GeneratedCounterClientActor : IActor<GeneratedCounterClientMessage>
 {
     private int value;
 
-    public ValueTask OnMessage(ActorContext ctx, object message)
+    public ValueTask OnMessage(ActorContext<GeneratedCounterClientMessage> ctx, GeneratedCounterClientMessage message)
     {
         switch (message)
         {
