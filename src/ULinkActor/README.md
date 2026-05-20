@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.8" />
+  <PackageReference Include="ULinkActor" Version="0.1.9" />
 </ItemGroup>
 ```
 
@@ -74,35 +74,6 @@ public sealed class RoomActor : IActor<RoomMessage>
 }
 
 int count = await room.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
-```
-
-## Typed Actors
-
-ULinkActor requires typed actors. Use a shared message base type or interface when one actor handles multiple command records:
-
-```csharp
-public abstract record RoomMessage;
-
-public sealed record JoinRoom(long PlayerId) : RoomMessage;
-
-public sealed class RoomActor : IActor<RoomMessage>
-{
-    private readonly HashSet<long> players = new();
-
-    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
-    {
-        if (message is JoinRoom join)
-        {
-            players.Add(join.PlayerId);
-        }
-
-        return ValueTask.CompletedTask;
-    }
-}
-
-ActorRef<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
-
-await room.Send(new JoinRoom(10001));
 ```
 
 Generated typed spawn extension methods are included with the `ULinkActor` package as compile-time source generator output.

@@ -223,7 +223,7 @@ ULinkActor.slnx
 Current package versions:
 
 ```text
-ULinkActor: 0.1.8
+ULinkActor: 0.1.9
 ULinkActor.SourceGenerator: internal compile-time project, not a standalone NuGet package
 ```
 

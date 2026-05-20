@@ -14,7 +14,7 @@ Install the runtime package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.8" />
+  <PackageReference Include="ULinkActor" Version="0.1.9" />
 </ItemGroup>
 ```
 
