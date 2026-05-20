@@ -47,13 +47,7 @@ ULinkGame.MMO
 
 # 当前状态
 
-当前版本：v0.1。
-
-v0.1 不是一个单点功能版本，而是分为四个阶段推进。
-
-## v0.1 Phase 1：最小 Actor Runtime
-
-状态：已完成。
+v0.1 已开发完成。
 
 - ActorSystem
 - ActorRef
@@ -66,41 +60,20 @@ v0.1 不是一个单点功能版本，而是分为四个阶段推进。
 - Timer
 - Sequential Execution
 - Bounded Mailbox Backpressure
-- Unit Test
-- .NET 10 / .slnx 项目结构
-
-## v0.1 Phase 2：基础运行时治理
-
-状态：已完成。
-
-已完成：
-
 - Graceful Shutdown
 - Dead Letter
 - Mailbox Metrics
 - Slow Message Detection
 - 更细粒度的 Configurable Capacity
-
-## v0.1 Phase 3：类型化与可观测性
-
-状态：已完成。
-
-已完成：
-
 - Typed Actor Wrapper
 - Diagnostics
 - Tracing
 - Source Generator
-
-## v0.1 Phase 4：本地注册与组织能力
-
-状态：已完成。
-
-已完成：
-
 - Named Actor
 - Local Registry
 - Actor Group
+- Unit Test
+- .NET 10 / .slnx 项目结构
 
 ## 已覆盖测试
 
@@ -641,7 +614,8 @@ tests/
 当前包版本：
 
 ```xml
-<Version>0.1.0</Version>
+ULinkActor: 0.1.1
+ULinkActor.SourceGenerator: 0.1.0
 ```
 
 ## Solution
