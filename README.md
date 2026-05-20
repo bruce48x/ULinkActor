@@ -1,6 +1,6 @@
 # ULinkActor
 
-ULinkActor is a lightweight actor/mailbox runtime for .NET game servers, inspired by skynet.
+ULinkActor is a lightweight actor runtime for .NET game servers, inspired by skynet.
 
 It is not a full distributed actor platform such as Orleans, Akka.NET, or Proto.Actor. It focuses on single-process service runtime capabilities that are common in game servers:
 
@@ -13,33 +13,26 @@ It is not a full distributed actor platform such as Orleans, Akka.NET, or Proto.
 - Bounded mailboxes provide backpressure.
 - Diagnostics and tracing are exposed through standard .NET APIs.
 
-v0.1 is complete. The current runtime package version is `0.1.2`.
-
 ---
 
 # Use Cases
 
 ULinkActor is suitable for long-lived stateful services in game servers, such as:
 
-- RoomActor
-- BattleActor
-- MatchActor
-- ChatActor
-- GuildActor
 - SessionActor
+- MatchActor
+- RoomActor
 - WorldActor
+- ChatActor
 
 The main benefit is that naturally sequential state can be kept inside actors. The mailbox guarantees ordered execution, so business code can avoid most shared-state concurrency concerns.
 
 Recommended layering:
 
 ```text
-ULinkActor        Lightweight mailbox runtime
+ULinkActor        Lightweight actor runtime
 ULinkRPC          Networking and RPC
-ULinkGame.Core    Game server infrastructure
-ULinkGame.Room    Room model
-ULinkGame.MMO     Optional MMO template
-Game-specific business logic
+ULinkGame         Game server infrastructure
 ```
 
 Related projects:
@@ -126,6 +119,8 @@ ULinkActor exposes message dispatch tracing through standard .NET `ActivitySourc
 ## Source Generator
 
 `ULinkActor.SourceGenerator` generates typed spawn extension methods for public `IActor<TMessage>` implementations, reducing repetitive boilerplate code.
+
+See [ULinkActor.SourceGenerator README](./src/ULinkActor.SourceGenerator/README.md) for installation, usage, generated method shape, and generation rules.
 
 ---
 
