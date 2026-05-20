@@ -30,9 +30,12 @@ Design constraints:
 - Support timers.
 - Support backpressure.
 - Build on TPL Dataflow.
+- Prefer compile-time source generation over runtime reflection for API ergonomics.
+- Keep source generators and analyzers as compile-time assets, not runtime dependencies.
 - Do not introduce MMO business concepts into the core.
 - Do not depend on Unity.
 - Do not bind the core to a network protocol.
+- Do not use dynamic proxies, runtime reflection, or `MethodInfo.Invoke` as a required path for actor dispatch, actor discovery, generated proxy calls, or request/response binding.
 
 The core model comes from skynet:
 
@@ -48,6 +51,81 @@ Each actor:
 - Processes messages sequentially.
 
 Because of this, state inside a single actor usually does not need `lock`, `ConcurrentDictionary`, or CAS-style concurrency protection.
+
+---
+
+# Source Generation And Reflection
+
+Source generation is considered part of the intended ULinkActor developer experience. It should be used to remove repetitive code, improve IDE completion, and keep actor APIs strongly typed while preserving the small runtime model.
+
+The runtime model remains:
+
+```text
+typed generated API -> ActorRef / ActorSystem -> mailbox -> actor handler
+```
+
+Generated code should call normal public runtime APIs such as `Spawn`, `Send`, and `Call<T>`. It should not depend on runtime method lookup, dynamic invocation, dynamic proxy libraries, or reflection-driven dispatch.
+
+Roslyn dependencies must stay in generator or analyzer projects. The `ULinkActor` runtime assembly must not reference Roslyn packages. If generators or analyzers are distributed through the main `ULinkActor` NuGet package, they should be packed under analyzer paths such as:
+
+```text
+analyzers/dotnet/cs
+```
+
+This keeps the user installation simple while preserving zero runtime cost.
+
+Acceptable compile-time generation targets include:
+
+- Typed spawn extension methods.
+- Strongly typed request/response helpers.
+- Optional actor client or proxy code that lowers method-like calls into `Send` or `Call<T>`.
+- Diagnostics that catch unsafe actor usage at compile time.
+
+Avoid adding runtime reflection-based alternatives unless they are optional tooling paths and not part of normal dispatch.
+
+---
+
+# GeekServer Design Takeaways
+
+GeekServer is useful as a reference for game-server actor ergonomics, but ULinkActor should only absorb ideas that fit the core boundary.
+
+Good candidates for ULinkActor Core:
+
+- Compile-time generated actor APIs instead of runtime proxy/reflection machinery.
+- Actor call-chain diagnostics for self-calls, circular awaits, and timeout root-cause analysis.
+- Lightweight lifecycle hooks for startup and shutdown work.
+- System-level scheduling that still delivers messages through actor mailboxes.
+
+Good candidates for ULinkGame or application code:
+
+- Entity / Component / State modeling.
+- Hotfix agent architecture.
+- Transparent persistence.
+- Idle game-data eviction.
+- Game events, Gate / Realm / Scene / AOI, protocol and config tooling.
+
+The default stance is to keep ULinkActor as the actor/mailbox runtime and place game-domain infrastructure in higher layers.
+
+---
+
+# Development Plan
+
+Current source generation and runtime ergonomics plan:
+
+| Status | Task |
+| --- | --- |
+| 已完成 | Document that source generation is the preferred API ergonomics path and runtime reflection is not part of the normal actor dispatch path. |
+| 已完成 | Package `ULinkActor.SourceGenerator` as a compile-time analyzer asset inside the main `ULinkActor` package. |
+| 已完成 | Keep Roslyn dependencies out of the `ULinkActor` runtime assembly. |
+| 已完成 | Add compile-time diagnostics for actor self-calls and blocking waits inside actor types. |
+| 已完成 | Add compile-time diagnostics for discarded `Call<T>` request results. |
+| 已完成 | Add optional generated actor client/proxy APIs that lower method-like calls into `Send` and `Call<T>` without runtime reflection. |
+| 已完成 | Add compile-time diagnostics for unsupported `[ActorClient]` interface shapes. |
+| 待办 | Add actor call-chain diagnostics for circular awaits and timeout root-cause analysis. |
+| 待办 | Evaluate lightweight actor lifecycle hooks for startup and shutdown work. |
+| 待办 | Evaluate system-level scheduling that still delivers messages through actor mailboxes. |
+
+Completed items in this table should reflect implemented repository behavior, not only design intent.
 
 ---
 
@@ -74,6 +152,8 @@ Included capabilities:
 - Diagnostics
 - Tracing
 - Source Generator
+- Compile-time Actor Usage Analyzer
+- Generated Actor Client Proxy
 - Named Actor
 - Local Registry
 - Actor Group
@@ -143,9 +223,11 @@ ULinkActor.slnx
 Current package versions:
 
 ```text
-ULinkActor: 0.1.2
-ULinkActor.SourceGenerator: 0.1.1
+ULinkActor: 0.1.7
+ULinkActor.SourceGenerator: internal compile-time project, not a standalone NuGet package
 ```
+
+`ULinkActor` 0.1.3 and later packages the source generator as a compile-time analyzer asset. `src/ULinkActor.SourceGenerator` is retained as an internal build project so Roslyn dependencies stay out of the runtime assembly, but it is not independently packable and should not be published as a standalone NuGet package.
 
 ## Repository
 
@@ -187,6 +269,9 @@ The `ULinkActor` runtime targets .NET 10 only and does not declare an extra `Sys
 - Named actor / local registry behavior works.
 - Actor groups work.
 - Source generator typed spawn extensions are emitted.
+- Source generator actor client proxies are emitted.
+- Actor client generator reports unsupported interface shapes.
+- Actor usage analyzer reports self-calls, blocking waits, and discarded request calls.
 
 ---
 

@@ -348,6 +348,19 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public async Task Source_generator_creates_actor_client_proxy()
+    {
+        using ActorSystem system = new();
+        ActorRef counterActor = system.Spawn(new GeneratedCounterClientActor());
+        IGeneratedCounterClient counter = counterActor.AsGeneratedCounterClient(TimeSpan.FromSeconds(1));
+
+        await counter.Add(11);
+        int value = await counter.GetCounter();
+
+        Assert.Equal(11, value);
+    }
+
+    [Fact]
     public async Task Stop_drains_queued_messages_before_completion()
     {
         using ActorSystem system = new();

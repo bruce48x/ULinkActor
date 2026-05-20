@@ -118,7 +118,13 @@ ULinkActor exposes message dispatch tracing through standard .NET `ActivitySourc
 
 ## Source Generator
 
-`ULinkActor.SourceGenerator` generates typed spawn extension methods for public `IActor<TMessage>` implementations, reducing repetitive boilerplate code.
+`ULinkActor.SourceGenerator` generates typed spawn extension methods for public `IActor<TMessage>` implementations and actor client proxies for `[ActorClient]` interfaces, reducing repetitive boilerplate code.
+
+Source generation is the preferred way to improve the user-facing API without adding runtime cost. Generated code should be ordinary C# that calls the existing `ActorSystem`, `ActorRef`, `Send`, and `Call<T>` APIs.
+
+The runtime should not require runtime reflection, dynamic proxy generation, or `MethodInfo.Invoke` for actor discovery, message dispatch, generated proxy calls, or request/response binding. If source generators or analyzers are bundled with the main package in the future, they should be shipped as compile-time analyzer assets and must not add Roslyn dependencies to the runtime assembly.
+
+The compile-time analyzer currently warns about actor self-calls through `ctx.Self.Call(...)`, blocking waits such as `.Wait()` or `.Result` inside actor types, and discarded `Call<T>` request results.
 
 See [ULinkActor.SourceGenerator README](./src/ULinkActor.SourceGenerator/README.md) for installation, usage, generated method shape, and generation rules.
 
@@ -142,6 +148,7 @@ The following are not part of ULinkActor Core:
 - Network protocols
 - Transport
 - RPC
+- Runtime reflection driven actor dispatch or proxy generation
 
 These concerns should be handled by [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code.
 

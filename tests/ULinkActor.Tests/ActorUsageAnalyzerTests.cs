@@ -1,0 +1,164 @@
+using System.Collections.Immutable;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
+using ULinkActor.SourceGenerator;
+
+namespace ULinkActor.Tests;
+
+public sealed class ActorUsageAnalyzerTests
+{
+    [Fact]
+    public async Task Analyzer_reports_self_call_inside_actor()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public sealed class BadActor : IActor
+            {
+                public async ValueTask OnMessage(ActorContext ctx, object message)
+                {
+                    await ctx.Self.Call<string>(message, TimeSpan.FromSeconds(1));
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Diagnostic diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(ActorUsageAnalyzer.SelfCallDiagnosticId, diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task Analyzer_reports_blocking_waits_inside_actor()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public sealed class BadActor : IActor
+            {
+                public ValueTask OnMessage(ActorContext ctx, object message)
+                {
+                    Task.CompletedTask.Wait();
+                    _ = Task.FromResult(1).Result;
+                    return ValueTask.CompletedTask;
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Assert.Equal(
+            [ActorUsageAnalyzer.BlockingWaitDiagnosticId, ActorUsageAnalyzer.BlockingWaitDiagnosticId],
+            diagnostics.Select(static diagnostic => diagnostic.Id));
+    }
+
+    [Fact]
+    public async Task Analyzer_does_not_report_blocking_waits_outside_actor()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+
+            public sealed class RegularType
+            {
+                public void Run()
+                {
+                    Task.CompletedTask.Wait();
+                    _ = Task.FromResult(1).Result;
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public async Task Analyzer_reports_discarded_actor_calls()
+    {
+        const string source = """
+            using System;
+            using ULinkActor;
+
+            public sealed class RegularType
+            {
+                public void Run(ActorRef actor, ActorSystem system, ActorId id)
+                {
+                    actor.Call<string>("ping", TimeSpan.FromSeconds(1));
+                    _ = system.Call<string>(id, "ping", TimeSpan.FromSeconds(1));
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Assert.Equal(
+            [ActorUsageAnalyzer.DiscardedCallDiagnosticId, ActorUsageAnalyzer.DiscardedCallDiagnosticId],
+            diagnostics.Select(static diagnostic => diagnostic.Id));
+    }
+
+    [Fact]
+    public async Task Analyzer_does_not_report_observed_actor_calls()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public sealed class RegularType
+            {
+                public async ValueTask<string> Run(ActorRef actor)
+                {
+                    ValueTask<string> pending = actor.Call<string>("ping", TimeSpan.FromSeconds(1));
+                    return await pending;
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Assert.Empty(diagnostics);
+    }
+
+    private static async Task<Diagnostic[]> GetAnalyzerDiagnostics(string source)
+    {
+        SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "AnalyzerTests",
+            [syntaxTree],
+            GetMetadataReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        ImmutableArray<DiagnosticAnalyzer> analyzers = ImmutableArray.Create<DiagnosticAnalyzer>(
+            new ActorUsageAnalyzer());
+
+        ImmutableArray<Diagnostic> diagnostics = await compilation
+            .WithAnalyzers(analyzers)
+            .GetAnalyzerDiagnosticsAsync();
+
+        return diagnostics
+            .OrderBy(static diagnostic => diagnostic.Location.SourceSpan.Start)
+            .ToArray();
+    }
+
+    private static IEnumerable<MetadataReference> GetMetadataReferences()
+    {
+        string trustedPlatformAssemblies =
+            (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ??
+            string.Empty;
+
+        foreach (string path in trustedPlatformAssemblies.Split(Path.PathSeparator))
+        {
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                yield return MetadataReference.CreateFromFile(path);
+            }
+        }
+
+        yield return MetadataReference.CreateFromFile(typeof(ActorSystem).Assembly.Location);
+    }
+}

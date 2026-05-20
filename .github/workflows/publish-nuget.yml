@@ -50,10 +50,9 @@ jobs:
 
       - name: Pack NuGet packages
         run: |
+          rm -rf artifacts/nuget
           mkdir -p artifacts/nuget
-          for project in $(find src -maxdepth 2 -name "*.csproj" -print); do
-            dotnet pack "$project" --no-restore -c Release -o artifacts/nuget
-          done
+          dotnet pack src/ULinkActor/ULinkActor.csproj --no-restore -c Release -o artifacts/nuget
 
       - name: NuGet login
         uses: NuGet/login@v1

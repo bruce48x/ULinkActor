@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.2" />
+  <PackageReference Include="ULinkActor" Version="0.1.7" />
 </ItemGroup>
 ```
 
@@ -103,7 +103,11 @@ ActorRef<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
 await room.Send(new JoinRoom(10001));
 ```
 
-For generated typed spawn extension methods, install `ULinkActor.SourceGenerator`.
+Generated typed spawn extension methods are included with the `ULinkActor` package as compile-time source generator output.
+
+Interfaces marked with `[ActorClient]` can also get generated client proxies that lower `ValueTask` methods into `Send` and `ValueTask<T>` methods into `Call<T>`.
+
+The package also includes compile-time analyzer warnings for actor self-calls, blocking waits inside actor types, and discarded `Call<T>` request results.
 
 ## Core Features
 

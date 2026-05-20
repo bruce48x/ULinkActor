@@ -25,3 +25,31 @@ public sealed class GeneratedCounterActor : IActor<GeneratedCounterMessage>
         return ValueTask.CompletedTask;
     }
 }
+
+[ActorClient]
+public interface IGeneratedCounterClient
+{
+    ValueTask Add(int value);
+
+    ValueTask<int> GetCounter();
+}
+
+public sealed class GeneratedCounterClientActor : IActor
+{
+    private int value;
+
+    public ValueTask OnMessage(ActorContext ctx, object message)
+    {
+        switch (message)
+        {
+            case GeneratedCounterClientAddRequest add:
+                value += add.Value;
+                break;
+            case GeneratedCounterClientGetCounterRequest:
+                ctx.Respond(value);
+                break;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+}
