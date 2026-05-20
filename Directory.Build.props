@@ -10,7 +10,6 @@
     <FileVersion>0.1.0.0</FileVersion>
 
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/bruce48x/ULinkActor</PackageProjectUrl>
     <RepositoryUrl>https://github.com/bruce48x/ULinkActor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -23,9 +22,5 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
-
-  <ItemGroup Condition="'$(IsPackable)' != 'false'">
-    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
-  </ItemGroup>
 
 </Project>

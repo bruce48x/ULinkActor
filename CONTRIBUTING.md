@@ -143,7 +143,7 @@ ULinkActor.slnx
 当前包版本：
 
 ```text
-ULinkActor: 0.1.1
+ULinkActor: 0.1.2
 ULinkActor.SourceGenerator: 0.1.0
 ```
 

@@ -13,7 +13,7 @@ ULinkActor 是一个面向 .NET 游戏服务端的轻量级 Actor / Mailbox Runt
 - backpressure
 - diagnostics / tracing
 
-v0.1 已开发完成，当前 runtime 包版本为 `0.1.1`。
+v0.1 已开发完成，当前 runtime 包版本为 `0.1.2`。
 
 ---
 
