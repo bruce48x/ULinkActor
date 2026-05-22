@@ -4,7 +4,7 @@ This document is for ULinkActor framework contributors. For user-facing introduc
 
 ---
 
-# Design Positioning
+# Design Positioning And Boundaries
 
 The core idea of ULinkActor is:
 
@@ -18,7 +18,7 @@ It is not:
 enterprise distributed actor platform
 ```
 
-Design constraints:
+Preserve these constraints when changing the runtime:
 
 - Keep the core small.
 - Prefer single-process runtime scenarios.
@@ -51,6 +51,25 @@ Each actor:
 - Processes messages sequentially.
 
 Because of this, state inside a single actor usually does not need `lock`, `ConcurrentDictionary`, or CAS-style concurrency protection.
+
+The following concerns are outside ULinkActor Core:
+
+- Cluster
+- Remote Actor
+- Virtual Actor
+- Actor Persistence
+- Event Sourcing
+- Supervisor Tree
+- MMO templates
+- Gate / Realm / Map / AOI
+- Unity integration
+- Database abstractions
+- ORM
+- Network protocols
+- Transport
+- RPC
+
+These concerns belong in ULinkGame, ULinkRPC, or application code. Do not introduce them into the core API when modifying the runtime.
 
 ---
 
@@ -85,9 +104,9 @@ Avoid adding runtime reflection-based alternatives unless they are optional tool
 
 ---
 
-# GeekServer Design Takeaways
+# External Design References
 
-GeekServer is useful as a reference for game-server actor ergonomics, but ULinkActor should only absorb ideas that fit the core boundary.
+External actor and game-server frameworks are useful references for ergonomics, but ULinkActor should only absorb ideas that fit the core boundary.
 
 Good candidates for ULinkActor Core:
 
@@ -103,8 +122,6 @@ Good candidates for ULinkGame or application code:
 - Transparent persistence.
 - Idle game-data eviction.
 - Game events, Gate / Realm / Scene / AOI, protocol and config tooling.
-
-The default stance is to keep ULinkActor as the actor/mailbox runtime and place game-domain infrastructure in higher layers.
 
 ---
 
@@ -131,72 +148,19 @@ Completed items in this table should reflect implemented repository behavior, no
 
 # Current Status
 
-v0.1 is complete.
+v0.1 is complete for the local actor/mailbox runtime feature set described in [README.md](./README.md).
 
-Included capabilities:
-
-- ActorSystem / ActorRef<TMessage> / ActorId
-- IActor<TMessage> / ActorContext<TMessage>
-- Send
-- Call<T>
-- Timer
-- Mailbox
-- Sequential Execution
-- Bounded Mailbox Backpressure
-- Graceful Shutdown
-- Dead Letter
-- Mailbox Metrics
-- Slow Message Detection
-- Configurable Capacity
-- Typed Actor Wrapper
-- Diagnostics
-- Tracing
-- Source Generator
-- Compile-time Actor Usage Analyzer
-- Generated Actor Client Proxy
-- Named Actor
-- Local Registry
-- Actor Group
-- Unit Tests
-- .NET 10 / .slnx project structure
+The source generator and actor usage analyzer are packaged as compile-time analyzer assets inside the main `ULinkActor` package. `src/ULinkActor.SourceGenerator` remains an internal build project, not a standalone package.
 
 ---
 
 # Project Structure
 
-```mermaid
-flowchart TB
-    Runtime["src/ULinkActor"]
-
-    Runtime --> PublicApi["Public API"]
-    PublicApi --> ActorSystem["ActorSystem"]
-    PublicApi --> ActorRef["ActorRef<TMessage>"]
-    PublicApi --> ActorId["ActorId"]
-    PublicApi --> ActorContract["IActor<TMessage>"]
-    PublicApi --> ActorContext["ActorContext<TMessage>"]
-    PublicApi --> ActorGroup["ActorGroup<TMessage>"]
-
-    Runtime --> MailboxRuntime["Mailbox Runtime"]
-    MailboxRuntime --> ActorCell["ActorCell"]
-    MailboxRuntime --> Mailbox["Mailbox"]
-    MailboxRuntime --> Envelope["Envelope"]
-    MailboxRuntime --> ActorTimer["ActorTimer"]
-
-    Runtime --> Options["Configuration"]
-    Options --> ActorSystemOptions["ActorSystemOptions"]
-    Options --> ActorSpawnOptions["ActorSpawnOptions"]
-
-    Runtime --> TypedActor["Typed Actor"]
-    TypedActor --> TypedActorAdapter["TypedActorAdapter"]
-
-    Runtime --> Observability["Observability"]
-    Observability --> MailboxMetrics["MailboxMetrics"]
-    Observability --> SlowMessage["SlowMessage"]
-    Observability --> DeadLetter["DeadLetter"]
-    Observability --> Diagnostics["ULinkActorDiagnostics"]
-```
-
-`src/ULinkActor.SourceGenerator` provides typed spawn extension method generation. `tests/ULinkActor.Tests` covers core runtime behavior and source generator behavior.
+| Path | Responsibility |
+| --- | --- |
+| `src/ULinkActor` | Runtime public API, mailbox execution, timers, diagnostics, metrics, named actors, and actor groups. |
+| `src/ULinkActor.SourceGenerator` | Typed spawn generation, actor client proxy generation, and actor usage analyzer diagnostics. |
+| `tests/ULinkActor.Tests` | Runtime behavior tests, source generator tests, and analyzer tests. |
 
 ---
 
@@ -220,23 +184,13 @@ ULinkActor.slnx
 
 ## Version
 
-Current package versions:
+The package version is defined by `src/ULinkActor/ULinkActor.csproj`.
 
-```text
-ULinkActor: 0.1.9
-ULinkActor.SourceGenerator: internal compile-time project, not a standalone NuGet package
-```
-
-`ULinkActor` 0.1.3 and later packages the source generator as a compile-time analyzer asset. `src/ULinkActor.SourceGenerator` is retained as an internal build project so Roslyn dependencies stay out of the runtime assembly, but it is not independently packable and should not be published as a standalone NuGet package.
+`src/ULinkActor.SourceGenerator` is retained as an internal build project so Roslyn dependencies stay out of the runtime assembly, but it is not independently packable and should not be published as a standalone NuGet package.
 
 ## Repository
 
 [bruce48x/ULinkActor](https://github.com/bruce48x/ULinkActor)
-
-Related projects:
-
-- [bruce48x/ULinkRPC](https://github.com/bruce48x/ULinkRPC)
-- [bruce48x/ULinkGame](https://github.com/bruce48x/ULinkGame)
 
 ## Dependencies
 
@@ -250,48 +204,16 @@ The `ULinkActor` runtime targets .NET 10 only and does not declare an extra `Sys
 
 ---
 
-# Test Coverage
+# Test Responsibility
 
-- Send dispatches messages.
-- Call<T> returns responses.
-- Call<T> times out.
-- Mailboxes preserve send order.
-- A single actor does not execute messages concurrently.
-- Timer messages are processed sequentially through the mailbox.
-- Bounded mailboxes produce backpressure.
-- Stop drains already queued messages.
-- Sends after stop go to dead letters.
-- Per-actor mailbox capacity overrides are supported.
-- Mailbox metric snapshots are available.
-- Slow message detection works.
-- Typed actor wrappers work.
-- ActivitySource tracing is emitted.
-- Named actor / local registry behavior works.
-- Actor groups work.
-- Source generator typed spawn extensions are emitted.
-- Source generator actor client proxies are emitted.
-- Actor client generator reports unsupported interface shapes.
-- Actor usage analyzer reports self-calls, blocking waits, and discarded request calls.
+Tests should protect the actor runtime contract rather than mirror implementation details.
 
----
-
-# Development Boundaries
-
-The following are not part of ULinkActor Core:
-
-- Cluster
-- Remote Actor
-- Virtual Actor
-- Actor Persistence
-- Event Sourcing
-- Supervisor Tree
-- MMO templates
-- Gate / Realm / Map / AOI
-- Unity integration
-- Database abstractions
-- ORM
-- Network protocols
-- Transport
-- RPC
-
-These concerns should be handled by [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code. Do not introduce these concepts into the core API when modifying the runtime.
+| Area | Required coverage when changed |
+| --- | --- |
+| Messaging | Send dispatch, Call<T> responses, timeout behavior, response type validation, and dead-letter behavior. |
+| Mailbox | Send order, single-actor non-concurrency, bounded backpressure, stop drain behavior, and mailbox metrics. |
+| Timers | Timer delivery through the mailbox and timer disposal during stop. |
+| Observability | ActivitySource tracing, slow message detection, and dead-letter publication. |
+| Registry and groups | Named actor lookup, typed lookup validation, group broadcast, deduplication, and group stop. |
+| Source generation | Generated spawn extensions, actor client proxies, generated source shape, and unsupported interface diagnostics. |
+| Analyzer | Actor self-calls, blocking waits inside actors, discarded request calls, and any newly added diagnostics. |
