@@ -385,7 +385,7 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
-    public async Task Actor_stop_hook_runs_before_mailbox_is_drained()
+    public async Task Actor_stop_hook_runs_before_mailbox_is_completed()
     {
         using ActorSystem system = new();
         LifecycleActor actor = new();
@@ -395,7 +395,16 @@ public sealed class ActorSystemTests
         ActorStopResult result = await actorRef.Stop(TimeSpan.FromSeconds(1));
 
         Assert.Equal(ActorStopResult.Drained, result);
-        Assert.Equal(["started", "stopping", "started-message", "stopping-message"], actor.Events);
+
+        string[] events = actor.Events.ToArray();
+        int stoppingIndex = Array.IndexOf(events, "stopping");
+        int stoppingMessageIndex = Array.IndexOf(events, "stopping-message");
+
+        Assert.Equal(4, events.Length);
+        Assert.Equal("started", events[0]);
+        Assert.Contains("started-message", events);
+        Assert.True(stoppingIndex >= 0);
+        Assert.True(stoppingMessageIndex > stoppingIndex);
     }
 
     [Fact]

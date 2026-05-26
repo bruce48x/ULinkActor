@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 - 2026-05-26
+
+### Fixed
+
+- Fixed a lifecycle stop test assertion that depended on mailbox scheduling timing.
+
 ## 0.2.0 - 2026-05-26
 
 ### Added
