@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-05-26
+
+### Changed
+
+- Organized runtime and source generator code files into responsibility-based directories.
+
 ## 0.2.1 - 2026-05-26
 
 ### Fixed
