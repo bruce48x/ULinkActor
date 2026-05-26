@@ -1,6 +1,7 @@
 using System.Diagnostics;
+using ULinkActor.Messaging;
 
-namespace ULinkActor;
+namespace ULinkActor.Timers;
 
 internal sealed class ActorTimer : IDisposable
 {

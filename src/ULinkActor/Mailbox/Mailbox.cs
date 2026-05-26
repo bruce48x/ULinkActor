@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
 using System.Threading.Tasks.Dataflow;
+using ULinkActor.Messaging;
 
-namespace ULinkActor;
+namespace ULinkActor.Mailbox;
 
 internal sealed class Mailbox
 {

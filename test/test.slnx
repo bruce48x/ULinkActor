@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="../tests/ULinkActor.Tests/ULinkActor.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using ULinkActor.SourceGenerator;
+using ULinkActor.SourceGenerator.Generators;
 
 namespace ULinkActor.Tests;
 

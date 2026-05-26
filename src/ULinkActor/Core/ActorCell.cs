@@ -1,7 +1,11 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using ULinkActor.Abstractions;
+using ULinkActor.Lifecycle;
+using ULinkActor.Messaging;
+using MailboxCore = ULinkActor.Mailbox.Mailbox;
 
-namespace ULinkActor;
+namespace ULinkActor.Core;
 
 internal sealed class ActorCell
 {
@@ -26,7 +30,7 @@ internal sealed class ActorCell
         MessageType = messageType;
         this.slowMessageThreshold = slowMessageThreshold;
         Name = name;
-        Mailbox = new Mailbox(Dispatch, mailboxCapacity);
+        Mailbox = new MailboxCore(Dispatch, mailboxCapacity);
     }
 
     internal ActorRef Self { get; }
@@ -35,7 +39,7 @@ internal sealed class ActorCell
 
     internal string? Name { get; }
 
-    internal Mailbox Mailbox { get; }
+    internal MailboxCore Mailbox { get; }
 
     internal Task Completion => Mailbox.Completion;
 

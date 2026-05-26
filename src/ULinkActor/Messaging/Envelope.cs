@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ULinkActor;
+namespace ULinkActor.Messaging;
 
 internal sealed class Envelope
 {

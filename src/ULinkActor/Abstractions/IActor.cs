@@ -1,14 +1,5 @@
 namespace ULinkActor;
 
-internal interface IActor
-{
-    ValueTask OnMessage(ActorContextCore ctx, object message);
-
-    ValueTask OnStarted(ActorContextCore ctx);
-
-    ValueTask OnStopping(ActorContextCore ctx);
-}
-
 public interface IActor<TMessage>
 {
     ValueTask OnMessage(ActorContext<TMessage> ctx, TMessage message);

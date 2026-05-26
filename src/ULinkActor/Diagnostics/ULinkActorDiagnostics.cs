@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using MailboxCore = ULinkActor.Mailbox.Mailbox;
 
 namespace ULinkActor;
 
@@ -37,5 +38,5 @@ public static class ULinkActorDiagnostics
 
     private static readonly ObservableGauge<long> MailboxQueueLengthGauge = Meter.CreateObservableGauge(
         "ulinkactor.mailbox.queue.length",
-        static () => Mailbox.GetTotalQueuedCount());
+        static () => MailboxCore.GetTotalQueuedCount());
 }

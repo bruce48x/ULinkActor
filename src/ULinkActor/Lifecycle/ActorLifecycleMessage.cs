@@ -1,4 +1,4 @@
-namespace ULinkActor;
+namespace ULinkActor.Lifecycle;
 
 internal enum ActorLifecycleMessage
 {

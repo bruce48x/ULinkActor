@@ -1,4 +1,7 @@
-namespace ULinkActor;
+using ULinkActor.Abstractions;
+using ULinkActor.Messaging;
+
+namespace ULinkActor.Core;
 
 internal sealed class TypedActorAdapter<TMessage> : IActor
 {
