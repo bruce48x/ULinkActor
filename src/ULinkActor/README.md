@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.9" />
+  <PackageReference Include="ULinkActor" Version="0.2.0" />
 </ItemGroup>
 ```
 
@@ -80,7 +80,7 @@ Generated typed spawn extension methods are included with the `ULinkActor` packa
 
 Interfaces marked with `[ActorClient]` can also get generated client proxies that lower `ValueTask` methods into `Send` and `ValueTask<T>` methods into `Call<T>`.
 
-The package also includes compile-time analyzer warnings for actor self-calls, blocking waits inside actor types, and discarded `Call<T>` request results.
+The package also includes compile-time analyzer warnings for actor self-calls, blocking waits inside actor types, common blocking APIs such as `Thread.Sleep`, and discarded `Call<T>` request results.
 
 ## Core Features
 
@@ -89,9 +89,9 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - `Send` supports fire-and-forget messaging.
 - `Call<T>` supports request/response workflows.
 - Timer messages enter the actor mailbox and follow the same sequential execution rule.
+- Optional `IActorStarted<TMessage>` and `IActorStopping<TMessage>` hooks support local startup and graceful stop work.
 - Bounded mailbox capacity provides backpressure.
 - Named actors can be registered and resolved inside an `ActorSystem`; lookup validates the expected message type.
-- Actor groups support local broadcast and batch stop operations.
 - Mailbox metrics, slow message detection, dead letters, and .NET `ActivitySource` tracing are available for diagnostics.
 
 ## Non-Goals

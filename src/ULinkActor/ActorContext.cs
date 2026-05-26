@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace ULinkActor;
 
 internal sealed class ActorContextCore
@@ -43,7 +45,7 @@ internal sealed class ActorContextCore
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        ActorTimer timer = new(Self, message, dueTime, period);
+        ActorTimer timer = new(Self, message, dueTime, period, Activity.Current?.Context ?? default);
         cell.AddTimer(timer);
         return timer;
     }

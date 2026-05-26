@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 
 namespace ULinkActor.Tests;
 
@@ -35,6 +36,102 @@ public sealed class ActorSystemTests
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
             await actorRef.Call<string>("ping", TimeSpan.FromMilliseconds(20)));
+    }
+
+    [Fact]
+    public async Task Call_timeout_publishes_root_cause_diagnostic_for_unanswered_call()
+    {
+        using ActorSystem system = new();
+        TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
+
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
+            await actorRef.Call<string>("ping", TimeSpan.FromMilliseconds(20)));
+
+        ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Null(timeout.Caller);
+        Assert.Equal(actorRef.Id, timeout.Target);
+        Assert.Equal("ping", timeout.Request);
+        Assert.Equal(ActorCallTimeoutReason.ResponseTimeout, timeout.Reason);
+        Assert.Empty(timeout.CallChain);
+        Assert.Contains($"Target={actorRef.Id.Value}", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Call_timeout_diagnostic_identifies_queue_timeout_before_request_is_accepted()
+    {
+        using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 1 });
+        TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
+        BlockingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        try
+        {
+            await actorRef.Send("first");
+
+            TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
+                await actorRef.Call<string>("queued", TimeSpan.FromMilliseconds(20)));
+
+            ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+            Assert.Null(timeout.Caller);
+            Assert.Equal(actorRef.Id, timeout.Target);
+            Assert.Equal("queued", timeout.Request);
+            Assert.Equal(ActorCallTimeoutReason.QueueTimeout, timeout.Reason);
+            Assert.Empty(timeout.CallChain);
+            Assert.Contains("before it could be queued", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            actor.Release();
+        }
+
+        await Eventually(() => actorRef.GetMailboxMetrics().ProcessedCount == 1);
+    }
+
+
+    [Fact]
+    public async Task Call_timeout_diagnostic_identifies_self_call_circular_wait()
+    {
+        using ActorSystem system = new();
+        TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
+        ActorRef<object> actorRef = system.Spawn(new SelfCallingActor());
+
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+            await actorRef.Call<string>(new StartSelfCall(), TimeSpan.FromSeconds(1)));
+
+        ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(actorRef.Id, timeout.Caller);
+        Assert.Equal(actorRef.Id, timeout.Target);
+        Assert.IsType<InnerSelfCall>(timeout.Request);
+        Assert.Equal(ActorCallTimeoutReason.CircularWait, timeout.Reason);
+        Assert.Equal(new[] { actorRef.Id }, timeout.CallChain);
+    }
+
+    [Fact]
+    public async Task Call_timeout_diagnostic_preserves_downstream_call_chain()
+    {
+        using ActorSystem system = new();
+        TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
+        ActorRef<object> downstream = system.Spawn(new IgnoringActor());
+        ActorRef<object> upstream = system.Spawn(new DownstreamCallingActor(downstream));
+
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+            await upstream.Call<string>(new StartDownstreamCall(), TimeSpan.FromSeconds(1)));
+
+        ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(upstream.Id, timeout.Caller);
+        Assert.Equal(downstream.Id, timeout.Target);
+        Assert.IsType<DownstreamRequest>(timeout.Request);
+        Assert.Equal(ActorCallTimeoutReason.ResponseTimeout, timeout.Reason);
+        Assert.Equal(new[] { upstream.Id }, timeout.CallChain);
     }
 
     [Fact]
@@ -138,10 +235,56 @@ public sealed class ActorSystemTests
         Assert.Equal(1, queuedMetrics.QueuedCount);
         Assert.Equal(2, queuedMetrics.EnqueuedCount);
         Assert.Equal(0, queuedMetrics.ProcessedCount);
+        Assert.Equal(0, queuedMetrics.RejectedCount);
         Assert.False(queuedMetrics.IsCompleted);
 
         actor.Release();
         await Eventually(() => actorRef.GetMailboxMetrics().ProcessedCount == 2);
+    }
+
+    [Fact]
+    public async Task TrySend_returns_mailbox_full_and_publishes_dead_letter_when_capacity_is_exhausted()
+    {
+        using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 1 });
+        List<DeadLetter> deadLetters = new();
+        system.DeadLetterPublished += deadLetters.Add;
+        BlockingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        Assert.Equal(ActorSendResult.Accepted, actorRef.TrySend("first"));
+        Assert.Equal(ActorSendResult.MailboxFull, actorRef.TrySend("second"));
+
+        MailboxMetrics metrics = actorRef.GetMailboxMetrics();
+        DeadLetter deadLetter = Assert.Single(deadLetters);
+
+        Assert.Equal(1, metrics.Capacity);
+        Assert.Equal(1, metrics.EnqueuedCount);
+        Assert.Equal(1, metrics.RejectedCount);
+        Assert.Equal(actorRef.Id, deadLetter.Target);
+        Assert.Equal("second", deadLetter.Message);
+        Assert.Equal("Actor mailbox is full.", deadLetter.Reason);
+
+        actor.Release();
+        await Eventually(() => actorRef.GetMailboxMetrics().ProcessedCount == 1);
+    }
+
+    [Fact]
+    public async Task TrySend_to_stopped_actor_returns_unavailable_and_publishes_dead_letter()
+    {
+        using ActorSystem system = new();
+        List<DeadLetter> deadLetters = new();
+        system.DeadLetterPublished += deadLetters.Add;
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
+
+        await actorRef.Stop();
+
+        ActorSendResult result = actorRef.TrySend("late-message");
+
+        DeadLetter deadLetter = Assert.Single(deadLetters);
+        Assert.Equal(ActorSendResult.ActorUnavailable, result);
+        Assert.Equal(actorRef.Id, deadLetter.Target);
+        Assert.Equal("late-message", deadLetter.Message);
+        Assert.Equal("Actor does not exist.", deadLetter.Reason);
     }
 
     [Fact]
@@ -163,6 +306,40 @@ public sealed class ActorSystemTests
         Assert.Equal(actorRef.Id, slowMessage.ActorId);
         Assert.Equal("slow", slowMessage.Message);
         Assert.True(slowMessage.Elapsed >= TimeSpan.FromMilliseconds(10));
+    }
+
+    [Fact]
+    public async Task Slow_message_detection_adds_trace_event_to_dispatch_activity()
+    {
+        TaskCompletionSource<Activity> stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name == ULinkActorDiagnostics.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "ULinkActor.Actor.Dispatch")
+                {
+                    stopped.TrySetResult(activity);
+                }
+            }
+        };
+
+        ActivitySource.AddActivityListener(listener);
+
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            SlowMessageThreshold = TimeSpan.FromMilliseconds(10)
+        });
+        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30)));
+
+        await actorRef.Send("slow");
+
+        Activity activity = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(true, activity.GetTagItem("ulinkactor.slow_message"));
+        Assert.Contains(activity.Events, evt => evt.Name == "ULinkActor.Actor.SlowMessage");
     }
 
     [Fact]
@@ -191,6 +368,58 @@ public sealed class ActorSystemTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await counter.Send(new Add(1)));
+    }
+
+    [Fact]
+    public async Task Actor_start_hook_runs_when_actor_is_spawned()
+    {
+        using ActorSystem system = new();
+        LifecycleActor actor = new();
+
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        string[] events = await actorRef.Call<string[]>(new GetLifecycleEvents(), TimeSpan.FromSeconds(1));
+
+        Assert.Equal(["started", "started-message", "get"], events);
+        await actorRef.Stop();
+    }
+
+    [Fact]
+    public async Task Actor_stop_hook_runs_before_mailbox_is_drained()
+    {
+        using ActorSystem system = new();
+        LifecycleActor actor = new();
+
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        ActorStopResult result = await actorRef.Stop(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(ActorStopResult.Drained, result);
+        Assert.Equal(["started", "stopping", "started-message", "stopping-message"], actor.Events);
+    }
+
+    [Fact]
+    public void Actor_start_hook_failure_rolls_back_registration()
+    {
+        using ActorSystem system = new();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            system.Spawn<object>("bad", new FailingStartActor()));
+
+        Assert.False(system.TryGetActor<object>("bad", out _));
+    }
+
+    [Fact]
+    public void Public_api_does_not_expose_scheduler_lane_concepts()
+    {
+        string[] publicApiNames = typeof(ActorSystem).Assembly
+            .GetExportedTypes()
+            .SelectMany(type => type.GetMembers().Select(member => $"{type.Name}.{member.Name}").Append(type.Name))
+            .ToArray();
+
+        Assert.DoesNotContain(publicApiNames, name => name.Contains("Scheduler", StringComparison.Ordinal));
+        Assert.DoesNotContain(publicApiNames, name => name.Contains("Lane", StringComparison.Ordinal));
+        Assert.DoesNotContain(publicApiNames, name => name.Contains("LogicThread", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -224,6 +453,167 @@ public sealed class ActorSystemTests
         Assert.Equal(actorRef.Id.Value, activity.GetTagItem("ulinkactor.actor.id"));
         Assert.Equal(typeof(string).FullName, activity.GetTagItem("ulinkactor.message.type"));
         Assert.Equal("call", activity.GetTagItem("ulinkactor.message.kind"));
+    }
+
+    [Fact]
+    public async Task Send_and_call_dispatch_activities_preserve_parent_activity_context()
+    {
+        using ActivitySource testSource = new("ULinkActor.Tests");
+        List<Activity> stopped = new();
+
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name is ULinkActorDiagnostics.ActivitySourceName or "ULinkActor.Tests",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "ULinkActor.Actor.Dispatch")
+                {
+                    stopped.Add(activity);
+                }
+            }
+        };
+
+        ActivitySource.AddActivityListener(listener);
+
+        using ActorSystem system = new();
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+
+        using Activity? parent = testSource.StartActivity("parent");
+        Assert.NotNull(parent);
+
+        await actorRef.Send("trace-send");
+        string response = await actorRef.Call<string>("trace-call", TimeSpan.FromSeconds(1));
+        await Eventually(() => stopped.Count >= 2);
+
+        Assert.Equal("trace-call", response);
+        Assert.All(stopped, activity => Assert.Equal(parent!.SpanId, activity.ParentSpanId));
+    }
+
+    [Fact]
+    public async Task Timer_dispatch_activity_preserves_scheduling_activity_context()
+    {
+        using ActivitySource testSource = new("ULinkActor.Tests.Timer");
+        TaskCompletionSource<Activity> startTimerActivity = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<Activity> tickActivity = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name is ULinkActorDiagnostics.ActivitySourceName or "ULinkActor.Tests.Timer",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName != "ULinkActor.Actor.Dispatch")
+                {
+                    return;
+                }
+
+                string? messageType = activity.GetTagItem("ulinkactor.message.type")?.ToString();
+
+                if (messageType?.Contains(nameof(StartTimer), StringComparison.Ordinal) == true)
+                {
+                    startTimerActivity.TrySetResult(activity);
+                }
+
+                if (messageType?.Contains(nameof(Tick), StringComparison.Ordinal) == true)
+                {
+                    tickActivity.TrySetResult(activity);
+                }
+            }
+        };
+
+        ActivitySource.AddActivityListener(listener);
+
+        using ActorSystem system = new();
+        ActorRef<object> actorRef = system.Spawn(new TimerActor());
+
+        using Activity? parent = testSource.StartActivity("timer-parent");
+        Assert.NotNull(parent);
+
+        await actorRef.Send(new StartTimer());
+
+        Activity scheduledBy = await startTimerActivity.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Activity activity = await tickActivity.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(parent!.SpanId, scheduledBy.ParentSpanId);
+        Assert.Equal(scheduledBy.SpanId, activity.ParentSpanId);
+    }
+
+    [Fact]
+    public async Task Runtime_metrics_emit_low_cardinality_counters_and_queue_gauge()
+    {
+        List<MetricMeasurement> measurements = new();
+
+        using MeterListener listener = new()
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == ULinkActorDiagnostics.MeterName)
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+
+        listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
+        {
+            measurements.Add(new MetricMeasurement(
+                instrument.Name,
+                measurement,
+                tags.ToArray()));
+        });
+        listener.Start();
+
+        using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 2 });
+        BlockingActor blocking = new();
+        ActorRef<object> blocked = system.Spawn(blocking);
+        ActorRef<object> echo = system.Spawn(new EchoActor());
+        ActorRef<object> ignoring = system.Spawn(new IgnoringActor());
+        ActorRef<object> stopped = system.Spawn(new IgnoringActor());
+
+        try
+        {
+            await echo.Send("send");
+            _ = await echo.Call<string>("call", TimeSpan.FromSeconds(1));
+            await Assert.ThrowsAsync<TimeoutException>(async () =>
+                await ignoring.Call<string>("timeout", TimeSpan.FromMilliseconds(20)));
+            await blocked.Send("active");
+            await blocked.Send("queued");
+            await stopped.Stop();
+            Assert.Equal(ActorSendResult.ActorUnavailable, stopped.TrySend("late"));
+            listener.RecordObservableInstruments();
+        }
+        finally
+        {
+            blocking.Release();
+        }
+
+        await Eventually(() => blocked.GetMailboxMetrics().ProcessedCount >= 1);
+
+        string[] expectedInstruments =
+        [
+            "ulinkactor.message.accepted",
+            "ulinkactor.message.rejected",
+            "ulinkactor.message.processed",
+            "ulinkactor.call.started",
+            "ulinkactor.call.timeout",
+            "ulinkactor.deadletter.published",
+            "ulinkactor.mailbox.queue.length"
+        ];
+
+        foreach (string expectedInstrument in expectedInstruments)
+        {
+            Assert.Contains(measurements, measurement => measurement.InstrumentName == expectedInstrument);
+        }
+
+        Assert.Contains(measurements, measurement =>
+            measurement.InstrumentName == "ulinkactor.mailbox.queue.length" && measurement.Value > 0);
+
+        string[] allowedTagKeys = ["kind", "reason"];
+        foreach (MetricMeasurement measurement in measurements)
+        {
+            Assert.All(measurement.Tags, tag => Assert.Contains(tag.Key, allowedTagKeys));
+        }
     }
 
     [Fact]
@@ -286,63 +676,6 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
-    public async Task Actor_group_broadcasts_send_to_members()
-    {
-        using ActorSystem system = new();
-        ActorRef<object> first = system.Spawn(new OrderingActor());
-        ActorRef<object> second = system.Spawn(new OrderingActor());
-        ActorGroup<object> group = system.CreateGroup(first, second);
-
-        await group.Send(7);
-
-        Assert.Equal(new[] { 7 }, await first.Call<int[]>(new GetValues(), TimeSpan.FromSeconds(1)));
-        Assert.Equal(new[] { 7 }, await second.Call<int[]>(new GetValues(), TimeSpan.FromSeconds(1)));
-    }
-
-    [Fact]
-    public async Task Actor_group_deduplicates_members()
-    {
-        using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new OrderingActor());
-        ActorGroup<object> group = system.CreateGroup(actorRef, actorRef);
-
-        await group.Send(1);
-
-        int[] values = await actorRef.Call<int[]>(new GetValues(), TimeSpan.FromSeconds(1));
-
-        Assert.Single(values);
-        Assert.Equal(1, group.Count);
-    }
-
-    [Fact]
-    public async Task Actor_group_stops_all_members()
-    {
-        using ActorSystem system = new();
-        ActorRef<object> first = system.Spawn(new IgnoringActor());
-        ActorRef<object> second = system.Spawn(new IgnoringActor());
-        ActorGroup<object> group = system.CreateGroup(first, second);
-
-        await group.Stop();
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await first.Send("late"));
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await second.Send("late"));
-    }
-
-    [Fact]
-    public async Task Typed_actor_group_broadcasts_typed_messages()
-    {
-        using ActorSystem system = new();
-        ActorRef<CounterMessage> first = system.Spawn<CounterMessage>(new CounterActor());
-        ActorRef<CounterMessage> second = system.Spawn<CounterMessage>(new CounterActor());
-        ActorGroup<CounterMessage> group = system.CreateGroup(first, second);
-
-        await group.Send(new Add(5));
-
-        Assert.Equal(5, await first.Call<int>(new GetCounter(), TimeSpan.FromSeconds(1)));
-        Assert.Equal(5, await second.Call<int>(new GetCounter(), TimeSpan.FromSeconds(1)));
-    }
-
-    [Fact]
     public async Task Source_generator_creates_typed_spawn_extension()
     {
         using ActorSystem system = new();
@@ -385,6 +718,83 @@ public sealed class ActorSystemTests
         await actorRef.Stop();
 
         Assert.Equal(Enumerable.Range(0, 16), actor.Values);
+    }
+
+    [Fact]
+    public async Task Stop_with_timeout_drains_queued_messages_before_completion()
+    {
+        using ActorSystem system = new();
+        RecordingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        for (int i = 0; i < 16; i++)
+        {
+            await actorRef.Send(i);
+        }
+
+        ActorStopResult result = await actorRef.Stop(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(ActorStopResult.Drained, result);
+        Assert.Equal(Enumerable.Range(0, 16), actor.Values);
+    }
+
+    [Fact]
+    public async Task Stop_with_timeout_returns_timed_out_and_rejects_new_messages()
+    {
+        using ActorSystem system = new();
+        List<DeadLetter> deadLetters = new();
+        system.DeadLetterPublished += deadLetters.Add;
+        BlockingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        await actorRef.Send("blocked");
+
+        ActorStopResult result = await actorRef.Stop(TimeSpan.FromMilliseconds(20));
+
+        Assert.Equal(ActorStopResult.TimedOut, result);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await actorRef.Send("late"));
+
+        DeadLetter deadLetter = Assert.Single(deadLetters);
+        Assert.Equal(actorRef.Id, deadLetter.Target);
+        Assert.Equal("late", deadLetter.Message);
+        Assert.Equal("Actor does not exist.", deadLetter.Reason);
+
+        actor.Release();
+    }
+
+    [Fact]
+    public async Task Stop_disposes_timers_and_prevents_future_timer_delivery()
+    {
+        using ActorSystem system = new();
+        TimerRecordingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        await actorRef.Send(new StartTimer());
+        await Eventually(() => actor.Ticks > 0);
+
+        await actorRef.Stop();
+        int ticksAfterStop = actor.Ticks;
+
+        await Task.Delay(80);
+
+        Assert.Equal(ticksAfterStop, actor.Ticks);
+    }
+
+    [Fact]
+    public async Task Background_work_completion_is_delivered_through_actor_mailbox()
+    {
+        using ActorSystem system = new();
+        OffloadActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        await actorRef.Send(new StartOffload(21));
+        await Eventually(() => actor.Events.Contains("complete"));
+        int doubled = await actorRef.Call<int>(new GetOffloadResult(), TimeSpan.FromSeconds(1));
+
+        Assert.Equal(42, doubled);
+        Assert.Equal(new[] { "start", "complete", "get" }, actor.Events);
+        Assert.Equal(1, actor.MaxConcurrency);
     }
 
     [Fact]
@@ -509,6 +919,26 @@ public sealed class ActorSystemTests
         }
     }
 
+    private sealed class TimerRecordingActor : IActor<object>
+    {
+        public int Ticks { get; private set; }
+
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            switch (message)
+            {
+                case StartTimer:
+                    ctx.ScheduleRepeated(new Tick(), TimeSpan.Zero, TimeSpan.FromMilliseconds(10));
+                    break;
+                case Tick:
+                    Ticks++;
+                    break;
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class BlockingActor : IActor<object>
     {
         private readonly TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -549,6 +979,75 @@ public sealed class ActorSystemTests
         }
     }
 
+    private sealed class OffloadActor : IActor<object>
+    {
+        private readonly List<string> events = new();
+        private int active;
+        private int maxConcurrency;
+        private int result;
+
+        public IReadOnlyList<string> Events => events;
+
+        public int MaxConcurrency => maxConcurrency;
+
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            int current = Interlocked.Increment(ref active);
+            maxConcurrency = Math.Max(maxConcurrency, current);
+
+            try
+            {
+                switch (message)
+                {
+                    case StartOffload start:
+                        events.Add("start");
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(20);
+                            await ctx.Self.Send(new OffloadCompleted(start.Value * 2));
+                        });
+                        break;
+                    case OffloadCompleted completed:
+                        events.Add("complete");
+                        result = completed.Value;
+                        break;
+                    case GetOffloadResult:
+                        events.Add("get");
+                        ctx.Respond(result);
+                        break;
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        }
+    }
+
+    private sealed class SelfCallingActor : IActor<object>
+    {
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            if (message is StartSelfCall)
+            {
+#pragma warning disable ULA001
+                await ctx.Self.Call<string>(new InnerSelfCall(), TimeSpan.FromMilliseconds(20));
+#pragma warning restore ULA001
+            }
+        }
+    }
+
+    private sealed class DownstreamCallingActor(ActorRef<object> downstream) : IActor<object>
+    {
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            if (message is StartDownstreamCall)
+            {
+                await downstream.Call<string>(new DownstreamRequest(), TimeSpan.FromMilliseconds(20));
+            }
+        }
+    }
+
     private sealed class CounterActor : IActor<CounterMessage>
     {
         private int value;
@@ -569,6 +1068,60 @@ public sealed class ActorSystemTests
         }
     }
 
+    private sealed class LifecycleActor :
+        IActor<object>,
+        IActorStarted<object>,
+        IActorStopping<object>
+    {
+        private readonly List<string> events = new();
+
+        public IReadOnlyList<string> Events => events;
+
+        public async ValueTask OnStarted(ActorContext<object> ctx)
+        {
+            events.Add("started");
+            await ctx.Self.Send(new StartedMessage());
+        }
+
+        public async ValueTask OnStopping(ActorContext<object> ctx)
+        {
+            events.Add("stopping");
+            await ctx.Self.Send(new StoppingMessage());
+        }
+
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            switch (message)
+            {
+                case StartedMessage:
+                    events.Add("started-message");
+                    break;
+                case StoppingMessage:
+                    events.Add("stopping-message");
+                    break;
+                case GetLifecycleEvents:
+                    events.Add("get");
+                    ctx.Respond(events.ToArray());
+                    break;
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingStartActor : IActor<object>, IActorStarted<object>
+    {
+        public ValueTask OnStarted(ActorContext<object> ctx)
+        {
+            throw new InvalidOperationException("start failed");
+        }
+
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(1));
@@ -579,6 +1132,11 @@ public sealed class ActorSystemTests
         }
     }
 
+    private sealed record MetricMeasurement(
+        string InstrumentName,
+        long Value,
+        KeyValuePair<string, object?>[] Tags);
+
     private readonly record struct GetValues;
 
     private readonly record struct GetMaxConcurrency;
@@ -588,6 +1146,26 @@ public sealed class ActorSystemTests
     private readonly record struct Tick;
 
     private readonly record struct GetTickCount;
+
+    private readonly record struct StartSelfCall;
+
+    private readonly record struct InnerSelfCall;
+
+    private readonly record struct StartDownstreamCall;
+
+    private readonly record struct DownstreamRequest;
+
+    private readonly record struct StartOffload(int Value);
+
+    private readonly record struct OffloadCompleted(int Value);
+
+    private readonly record struct GetOffloadResult;
+
+    private readonly record struct StartedMessage;
+
+    private readonly record struct StoppingMessage;
+
+    private readonly record struct GetLifecycleEvents;
 
     private abstract record CounterMessage;
 

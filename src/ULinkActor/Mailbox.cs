@@ -1,19 +1,26 @@
+using System.Collections.Concurrent;
 using System.Threading.Tasks.Dataflow;
 
 namespace ULinkActor;
 
 internal sealed class Mailbox
 {
+    private static readonly ConcurrentDictionary<long, Mailbox> ActiveMailboxes = new();
+    private static long nextId;
+
     private readonly ActionBlock<Envelope> block;
     private readonly int capacity;
+    private readonly long id;
     private long enqueuedCount;
     private long processedCount;
+    private long rejectedCount;
 
     public Mailbox(Func<Envelope, ValueTask> dispatch, int capacity)
     {
         ArgumentNullException.ThrowIfNull(dispatch);
 
         this.capacity = capacity;
+        id = Interlocked.Increment(ref nextId);
         block = new ActionBlock<Envelope>(
             async envelope =>
             {
@@ -32,6 +39,7 @@ internal sealed class Mailbox
                 EnsureOrdered = true,
                 MaxDegreeOfParallelism = 1
             });
+        ActiveMailboxes.TryAdd(id, this);
     }
 
     public Task Completion => block.Completion;
@@ -42,15 +50,33 @@ internal sealed class Mailbox
 
         if (!accepted)
         {
+            Interlocked.Increment(ref rejectedCount);
             throw new InvalidOperationException("The actor mailbox is completed.");
         }
 
         Interlocked.Increment(ref enqueuedCount);
+        ULinkActorDiagnostics.MessageAcceptedCounter.Add(1, CreateKindTag(envelope));
+    }
+
+    public bool TrySend(Envelope envelope)
+    {
+        bool accepted = block.Post(envelope);
+
+        if (accepted)
+        {
+            Interlocked.Increment(ref enqueuedCount);
+            ULinkActorDiagnostics.MessageAcceptedCounter.Add(1, CreateKindTag(envelope));
+            return true;
+        }
+
+        Interlocked.Increment(ref rejectedCount);
+        return false;
     }
 
     public void Complete()
     {
         block.Complete();
+        ActiveMailboxes.TryRemove(id, out _);
     }
 
     public MailboxMetrics GetMetrics()
@@ -60,6 +86,17 @@ internal sealed class Mailbox
             block.InputCount,
             Interlocked.Read(ref enqueuedCount),
             Interlocked.Read(ref processedCount),
+            Interlocked.Read(ref rejectedCount),
             Completion.IsCompleted);
+    }
+
+    public static long GetTotalQueuedCount()
+    {
+        return ActiveMailboxes.Values.Sum(static mailbox => mailbox.block.InputCount);
+    }
+
+    private static KeyValuePair<string, object?> CreateKindTag(Envelope envelope)
+    {
+        return new KeyValuePair<string, object?>("kind", envelope.Response is null ? "send" : "call");
     }
 }

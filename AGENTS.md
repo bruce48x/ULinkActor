@@ -1,5 +1,5 @@
 # AGENTS
 
-Use [README.md](./README.md) as the source of truth for project documentation.
+Project contribution, build, test, package, release, and design-boundary details live in `CONTRIBUTING.md`.
 
-Use [CONTRIBUTING.md](./CONTRIBUTING.md) as the source of truth for development conventions.
+Before changing this repository, read `CONTRIBUTING.md` and treat it as the authoritative project guide.

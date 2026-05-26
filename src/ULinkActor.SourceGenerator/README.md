@@ -6,6 +6,8 @@ It is intended to reduce repeated `Spawn<TMessage>(...)` calls when your project
 
 The generator is a compile-time convenience layer. It must emit ordinary C# that calls the public ULinkActor runtime APIs, and it must not require runtime reflection, dynamic proxies, or dynamic method invocation.
 
+Actors may optionally implement `IActorStarted<TMessage>` and `IActorStopping<TMessage>` lifecycle hooks. The spawn generator continues to target `IActor<TMessage>` and does not require lifecycle hooks.
+
 This project is an internal compile-time project for the main `ULinkActor` package. It is not independently packable and should not be published as a standalone NuGet package.
 
 ## Install
@@ -14,7 +16,7 @@ Install the runtime package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.1.9" />
+  <PackageReference Include="ULinkActor" Version="0.2.0" />
 </ItemGroup>
 ```
 
@@ -163,7 +165,7 @@ The same analyzer asset also reports common unsafe actor usage:
 | Rule | Severity | Description |
 | --- | --- | --- |
 | `ULA001` | Warning | Reports `ctx.Self.Call(...)` inside an actor because calling the current actor through its own mailbox can deadlock. |
-| `ULA002` | Warning | Reports `.Wait()` and `.Result` on task-like values inside actor types because blocking can stall the mailbox. |
+| `ULA002` | Warning | Reports blocking waits such as `.Wait()`, `.Result`, `Task.WaitAll(...)`, `Task.WaitAny(...)`, `.GetAwaiter().GetResult()`, and `Thread.Sleep(...)` inside actor types because blocking can stall the mailbox. |
 | `ULA003` | Warning | Reports discarded `ActorRef<TMessage>.Call<T>` results because request/response calls should be awaited, returned, or stored. |
 
 ## Design Direction

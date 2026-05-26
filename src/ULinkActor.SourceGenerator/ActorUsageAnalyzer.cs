@@ -84,7 +84,7 @@ public sealed class ActorUsageAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        if (isInsideActorType && method.Name == "Wait" && IsTaskLike(method.ContainingType))
+        if (isInsideActorType && IsBlockingInvocation(method))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 BlockingWaitRule,
@@ -241,6 +241,61 @@ public sealed class ActorUsageAnalyzer : DiagnosticAnalyzer
             };
     }
 
+    private static bool IsBlockingInvocation(IMethodSymbol method)
+    {
+        if (method.Name == "Wait" && IsTaskLike(method.ContainingType))
+        {
+            return true;
+        }
+
+        if (method.Name is "WaitAll" or "WaitAny" && IsTaskType(method.ContainingType))
+        {
+            return true;
+        }
+
+        if (method.Name == "GetResult" && IsTaskAwaiter(method.ContainingType))
+        {
+            return true;
+        }
+
+        return method.Name == "Sleep" && IsThreadType(method.ContainingType);
+    }
+
+    private static bool IsTaskType(INamedTypeSymbol? type)
+    {
+        if (type is null)
+        {
+            return false;
+        }
+
+        return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Threading.Tasks.Task";
+    }
+
+    private static bool IsThreadType(INamedTypeSymbol? type)
+    {
+        if (type is null)
+        {
+            return false;
+        }
+
+        return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Threading.Thread";
+    }
+
+    private static bool IsTaskAwaiter(INamedTypeSymbol? type)
+    {
+        if (type is null)
+        {
+            return false;
+        }
+
+        string name = type.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        return name is "global::System.Runtime.CompilerServices.TaskAwaiter" or
+            "global::System.Runtime.CompilerServices.TaskAwaiter<TResult>" or
+            "global::System.Runtime.CompilerServices.ValueTaskAwaiter" or
+            "global::System.Runtime.CompilerServices.ValueTaskAwaiter<TResult>";
+    }
+
     private static bool IsTaskLike(INamedTypeSymbol? type)
     {
         if (type is null)
@@ -253,6 +308,7 @@ public sealed class ActorUsageAnalyzer : DiagnosticAnalyzer
 
         return name is "global::System.Threading.Tasks.Task" or
             "global::System.Threading.Tasks.Task<TResult>" or
+            "global::System.Threading.Tasks.ValueTask" or
             "global::System.Threading.Tasks.ValueTask<TResult>";
     }
 }

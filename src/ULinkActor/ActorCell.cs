@@ -51,6 +51,17 @@ internal sealed class ActorCell
         return Mailbox.Send(envelope, cancellationToken);
     }
 
+    public bool TrySend(Envelope envelope)
+    {
+        return Mailbox.TrySend(envelope);
+    }
+
+    public async ValueTask StartAsync()
+    {
+        ActorContextCore context = new(system, Self, this, new Envelope(ActorLifecycleMessage.Started));
+        await actor.OnStarted(context).ConfigureAwait(false);
+    }
+
     public void AddTimer(IDisposable timer)
     {
         timers.Add(timer);
@@ -71,32 +82,90 @@ internal sealed class ActorCell
 
     public async ValueTask StopAsync()
     {
+        await StopAsync(null, runStoppingHook: false).ConfigureAwait(false);
+    }
+
+    public async ValueTask<ActorStopResult> StopAsync(TimeSpan drainTimeout)
+    {
+        if (drainTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
+        }
+
+        return await StopAsync((TimeSpan?)drainTimeout, runStoppingHook: false).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ActorStopResult> StopAsync(TimeSpan? drainTimeout, bool runStoppingHook)
+    {
+        if (!await BeginStopAsync(runStoppingHook).ConfigureAwait(false))
+        {
+            return await WaitForCompletion(drainTimeout).ConfigureAwait(false);
+        }
+
+        Complete();
+        return await WaitForCompletion(drainTimeout).ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> BeginStopAsync(bool runStoppingHook = true)
+    {
         if (Interlocked.Exchange(ref stopping, 1) != 0)
         {
-            return;
+            return false;
         }
 
         DisposeTimers();
-        Complete();
-        await Completion.ConfigureAwait(false);
+
+        if (runStoppingHook)
+        {
+            await RunStoppingHook().ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    private async ValueTask RunStoppingHook()
+    {
+        ActorContextCore context = new(system, Self, this, new Envelope(ActorLifecycleMessage.Stopping));
+        await actor.OnStopping(context).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ActorStopResult> WaitForCompletion(TimeSpan? drainTimeout)
+    {
+        if (drainTimeout is null)
+        {
+            await Completion.ConfigureAwait(false);
+            return ActorStopResult.Drained;
+        }
+
+        try
+        {
+            await Completion.WaitAsync(drainTimeout.Value).ConfigureAwait(false);
+            return ActorStopResult.Drained;
+        }
+        catch (TimeoutException)
+        {
+            return ActorStopResult.TimedOut;
+        }
     }
 
     private async ValueTask Dispatch(Envelope envelope)
     {
         ActorContextCore context = new(system, Self, this, envelope);
+        ActorCallContext? previousCallContext = system.CurrentCallContext;
+        IReadOnlyList<ActorId> callChain = AppendCallChain(envelope.CallChain, Self.Id);
         long startedAt = slowMessageThreshold is null ? 0 : Stopwatch.GetTimestamp();
         string messageType = envelope.Message.GetType().FullName ?? envelope.Message.GetType().Name;
 
-        using Activity? activity = ULinkActorDiagnostics.ActivitySource.StartActivity(
-            "ULinkActor.Actor.Dispatch",
-            ActivityKind.Internal);
+        using Activity? activity = StartDispatchActivity(envelope);
 
         activity?.SetTag("ulinkactor.actor.id", Self.Id.Value);
         activity?.SetTag("ulinkactor.message.type", messageType);
         activity?.SetTag("ulinkactor.message.kind", envelope.Response is null ? "send" : "call");
+        activity?.SetTag("ulinkactor.call.chain", string.Join(">", callChain.Select(id => id.Value)));
 
         try
         {
+            system.CurrentCallContext = new ActorCallContext(Self.Id, callChain);
             await actor.OnMessage(context, envelope.Message).ConfigureAwait(false);
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
@@ -109,15 +178,59 @@ internal sealed class ActorCell
         }
         finally
         {
+            system.CurrentCallContext = previousCallContext;
+            ULinkActorDiagnostics.MessageProcessedCounter.Add(1, CreateMessageKindTag(envelope));
+
             if (slowMessageThreshold is not null)
             {
                 TimeSpan elapsed = Stopwatch.GetElapsedTime(startedAt);
 
                 if (elapsed >= slowMessageThreshold.Value)
                 {
+                    activity?.AddEvent(new ActivityEvent(
+                        "ULinkActor.Actor.SlowMessage",
+                        tags: new ActivityTagsCollection
+                        {
+                            ["ulinkactor.slow_message.elapsed_ms"] = elapsed.TotalMilliseconds
+                        }));
+                    activity?.SetTag("ulinkactor.slow_message", true);
+                    activity?.SetTag("ulinkactor.slow_message.elapsed_ms", elapsed.TotalMilliseconds);
                     system.PublishSlowMessage(Self.Id, envelope.Message, elapsed);
                 }
             }
         }
+    }
+
+    private static IReadOnlyList<ActorId> AppendCallChain(IReadOnlyList<ActorId> callChain, ActorId actorId)
+    {
+        ActorId[] next = new ActorId[callChain.Count + 1];
+
+        for (int i = 0; i < callChain.Count; i++)
+        {
+            next[i] = callChain[i];
+        }
+
+        next[^1] = actorId;
+        return next;
+    }
+
+    private static KeyValuePair<string, object?> CreateMessageKindTag(Envelope envelope)
+    {
+        return new KeyValuePair<string, object?>("kind", envelope.Response is null ? "send" : "call");
+    }
+
+    private static Activity? StartDispatchActivity(Envelope envelope)
+    {
+        if (envelope.ParentActivityContext.TraceId != default)
+        {
+            return ULinkActorDiagnostics.ActivitySource.StartActivity(
+                "ULinkActor.Actor.Dispatch",
+                ActivityKind.Internal,
+                envelope.ParentActivityContext);
+        }
+
+        return ULinkActorDiagnostics.ActivitySource.StartActivity(
+            "ULinkActor.Actor.Dispatch",
+            ActivityKind.Internal);
     }
 }

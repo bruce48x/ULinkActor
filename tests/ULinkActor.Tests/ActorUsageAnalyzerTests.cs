@@ -36,6 +36,7 @@ public sealed class ActorUsageAnalyzerTests
     {
         const string source = """
             using System.Threading.Tasks;
+            using System.Threading;
             using ULinkActor;
 
             public sealed class BadActor : IActor<object>
@@ -44,6 +45,10 @@ public sealed class ActorUsageAnalyzerTests
                 {
                     Task.CompletedTask.Wait();
                     _ = Task.FromResult(1).Result;
+                    Task.WaitAll(Task.CompletedTask);
+                    Task.WaitAny(Task.CompletedTask);
+                    Task.CompletedTask.GetAwaiter().GetResult();
+                    Thread.Sleep(1);
                     return ValueTask.CompletedTask;
                 }
             }
@@ -52,7 +57,14 @@ public sealed class ActorUsageAnalyzerTests
         Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
 
         Assert.Equal(
-            [ActorUsageAnalyzer.BlockingWaitDiagnosticId, ActorUsageAnalyzer.BlockingWaitDiagnosticId],
+            [
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId,
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId,
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId,
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId,
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId,
+                ActorUsageAnalyzer.BlockingWaitDiagnosticId
+            ],
             diagnostics.Select(static diagnostic => diagnostic.Id));
     }
 
@@ -61,6 +73,7 @@ public sealed class ActorUsageAnalyzerTests
     {
         const string source = """
             using System.Threading.Tasks;
+            using System.Threading;
 
             public sealed class RegularType
             {
@@ -68,6 +81,37 @@ public sealed class ActorUsageAnalyzerTests
                 {
                     Task.CompletedTask.Wait();
                     _ = Task.FromResult(1).Result;
+                    Task.WaitAll(Task.CompletedTask);
+                    Task.WaitAny(Task.CompletedTask);
+                    Task.CompletedTask.GetAwaiter().GetResult();
+                    Thread.Sleep(1);
+                }
+            }
+            """;
+
+        Diagnostic[] diagnostics = await GetAnalyzerDiagnostics(source);
+
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public async Task Analyzer_does_not_report_safe_offload_inside_actor()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public sealed class WorkerActor : IActor<object>
+            {
+                public ValueTask OnMessage(ActorContext<object> ctx, object message)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1);
+                        await ctx.Self.Send("done");
+                    });
+
+                    return ValueTask.CompletedTask;
                 }
             }
             """;

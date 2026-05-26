@@ -1,48 +1,36 @@
 # ULinkActor
 
-ULinkActor is a lightweight actor runtime for .NET game servers, inspired by skynet.
+ULinkActor is a lightweight actor runtime for .NET game servers, inspired by skynet's service model.
 
-It is not a full distributed actor platform such as Orleans, Akka.NET, or Proto.Actor. It focuses on single-process service runtime capabilities that are common in game servers:
+The core idea is deliberately small:
 
-- One actor owns one mailbox.
-- Each actor processes messages sequentially.
-- Actor state can usually be written without locks.
-- Messaging is asynchronous.
-- Timers are supported.
-- Request/response workflows are supported.
-- Bounded mailboxes provide backpressure.
-- Diagnostics and tracing are exposed through standard .NET APIs.
+```text
+actor = mailbox + state + message handler
+```
 
----
+One actor owns one mailbox. Messages enter that mailbox and are processed sequentially. Actor state is therefore normally written without locks, because only one actor turn is active for that actor at a time.
 
-# Use Cases
-
-ULinkActor is suitable for long-lived stateful services in game servers, such as:
-
-- SessionActor
-- MatchActor
-- RoomActor
-- WorldActor
-- ChatActor
-
-The main benefit is that naturally sequential state can be kept inside actors. The mailbox guarantees ordered execution, so business code can avoid most shared-state concurrency concerns.
+ULinkActor is not a distributed actor platform. It is a process-local runtime for long-lived stateful services such as session, room, match, world, or chat actors.
 
 Recommended layering:
 
 ```text
-ULinkActor        Lightweight actor runtime
+ULinkActor        Process-local actor/mailbox runtime
 ULinkRPC          Networking and RPC
-ULinkGame         Game server infrastructure
+ULinkGame         Game server infrastructure and gameplay concepts
 ```
 
-Related projects:
+## Design Principles
 
-- [bruce48x/ULinkRPC](https://github.com/bruce48x/ULinkRPC)
-- [bruce48x/ULinkGame](https://github.com/bruce48x/ULinkGame)
+- Keep the runtime process-local and explicit.
+- Make mailbox overload visible through backpressure, rejected sends, dead letters, and metrics.
+- Keep actor APIs strongly typed.
+- Prefer compile-time source generation over runtime reflection.
+- Treat diagnostics as part of the runtime contract.
+- Keep game-specific concepts out of the core.
+- Do not hide network, serialization, retry, or remote timeout behind a local-looking actor reference.
 
----
-
-# Quick Start
+## Quick Start
 
 Define a message family and an actor:
 
@@ -70,73 +58,146 @@ public sealed class RoomActor : IActor<RoomMessage>
 Start the actor system and send a message:
 
 ```csharp
-ActorSystem system = new();
+using ActorSystem system = new();
+
 ActorRef<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
 
 await room.Send(new JoinRoom(10001));
 ```
 
-Use `Call<T>` when a response is required. Use `ActorContext<TMessage>` to schedule timers from inside an actor. Timer messages enter the same typed mailbox as normal messages, so they do not bypass the actor's sequential execution rule.
+Use `Call<T>` when a response is required:
 
----
+```csharp
+public sealed record GetPlayerCount : RoomMessage;
 
-# Core Features
+public sealed class RoomActor : IActor<RoomMessage>
+{
+    private readonly HashSet<long> players = new();
 
-## Send
+    public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
+    {
+        switch (message)
+        {
+            case JoinRoom join:
+                players.Add(join.PlayerId);
+                break;
+            case GetPlayerCount:
+                ctx.Respond(players.Count);
+                break;
+        }
 
-Fire-and-forget messaging. Useful for inputs, notifications, broadcasts, ticks, and similar workflows.
+        return ValueTask.CompletedTask;
+    }
+}
 
-## Call<T>
+int count = await room.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
+```
 
-Request/response messaging. Useful for querying actor state, requesting computed results, or waiting for actor-side work to complete.
+## Runtime Model
 
-## Timer
-
-Timers are delivered as mailbox messages and are processed sequentially with normal actor messages.
-
-## Typed Actor
+### Typed Actors
 
 ULinkActor's public actor API is typed-only. Actors implement `IActor<TMessage>`, callers hold `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type.
 
 Actors that handle multiple commands should use a shared message base type or interface, such as `RoomMessage`, and derive individual command records from it.
 
-## Named Actor / Local Registry
+### Send
 
-Actors can be registered by name inside a local `ActorSystem` and resolved later by name.
+`Send` is fire-and-forget messaging. It is useful for inputs, notifications, broadcasts, ticks, and completion messages.
 
-## Actor Group
+Bounded mailboxes apply backpressure. `Send` waits until capacity is available or the supplied cancellation token is cancelled. Use `TrySend` when a caller must fail fast instead of waiting.
 
-Multiple actors can be grouped locally for broadcast messaging or batch stop operations.
+### Call<T>
 
-## Backpressure
+`Call<T>` is request/response messaging. It is useful for querying actor state, requesting computed results, or waiting for actor-side work to complete.
 
-Mailboxes support bounded capacity. When the queue reaches its capacity limit, senders observe backpressure.
+Call timeouts publish structured diagnostics with the caller actor, target actor, request object, timeout reason, and actor call chain when the call originated from another actor.
 
-## Metrics / Slow Message Detection
+### Timers
 
-Mailbox metric snapshots can be read, and a slow message threshold can be configured to detect messages that take too long to process.
+Timers are delivered as mailbox messages. They do not bypass the actor's sequential execution rule.
 
-## Diagnostics / Tracing
+### Lifecycle
 
-ULinkActor exposes message dispatch tracing through standard .NET `ActivitySource`. It does not bind the runtime to a specific logger or APM platform.
+Actors may optionally implement:
 
-## Source Generator
+- `IActorStarted<TMessage>` for startup work.
+- `IActorStopping<TMessage>` for graceful stop work.
 
-`ULinkActor.SourceGenerator` generates typed spawn extension methods for public `IActor<TMessage>` implementations and typed actor client proxies for `[ActorClient]` interfaces, reducing repetitive boilerplate code.
+These hooks are local runtime hooks. Actor state still belongs to the actor, and follow-up work should enter through the mailbox.
 
-Source generation is the preferred way to improve the user-facing API without adding runtime cost. Generated code should be ordinary C# that calls the existing `ActorSystem`, `ActorRef<TMessage>`, `Send`, and `Call<T>` APIs.
+Actors can be stopped after draining queued work. Timeout overloads return whether the mailbox drained or the drain timeout elapsed. System disposal is a cleanup path and does not run graceful stop hooks.
 
-The runtime should not require runtime reflection, dynamic proxy generation, or `MethodInfo.Invoke` for actor discovery, message dispatch, generated proxy calls, or request/response binding. If source generators or analyzers are bundled with the main package in the future, they should be shipped as compile-time analyzer assets and must not add Roslyn dependencies to the runtime assembly.
+### Named Actors
 
-The compile-time analyzer currently warns about actor self-calls through `ctx.Self.Call(...)`, blocking waits such as `.Wait()` or `.Result` inside actor types, and discarded `Call<T>` request results.
+Actors can be registered by name inside a local `ActorSystem` and resolved later by name. Lookup validates the expected message type.
 
-See [ULinkActor.SourceGenerator README](./src/ULinkActor.SourceGenerator/README.md) for installation, usage, generated method shape, and generation rules.
+## Safe Long-Running Work
 
----
+Actor handlers should not run blocking or long CPU-bound work while holding actor state. Move that work outside the actor turn, then post a completion message back to the actor so state is updated through the mailbox:
 
-# Non-Goals
+```csharp
+public sealed record StartJob(int Value);
+public sealed record JobCompleted(int Result);
 
-The following are not part of ULinkActor Core:
+public sealed class WorkerActor : IActor<object>
+{
+    private int result;
+
+    public ValueTask OnMessage(ActorContext<object> ctx, object message)
+    {
+        switch (message)
+        {
+            case StartJob job:
+                _ = Task.Run(async () =>
+                {
+                    int computed = await RunSlowWork(job.Value);
+                    await ctx.Self.Send(new JobCompleted(computed));
+                });
+                break;
+            case JobCompleted completed:
+                result = completed.Result;
+                break;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+Avoid blocking inside `OnMessage`, for example `Thread.Sleep(...)`, `Task.WaitAll(...)`, or `task.GetAwaiter().GetResult()`. Those patterns stall the mailbox and prevent the actor from processing the message that would make progress.
+
+## Observability
+
+ULinkActor exposes diagnostics through standard .NET APIs:
+
+- `ActivitySource` for message dispatch tracing.
+- Activity context propagation through `Send`, `Call<T>`, timers, and generated actor clients.
+- `Meter` counters/gauges for accepted messages, rejected messages, processed messages, calls, timeouts, dead letters, and mailbox queue length.
+- Slow message detection.
+- Dead-letter publication.
+- Call-timeout root-cause diagnostics.
+
+The runtime does not bind to a specific logger, metrics backend, or APM platform.
+
+## Source Generation
+
+`ULinkActor.SourceGenerator` generates typed spawn extension methods for public `IActor<TMessage>` implementations and typed actor client proxies for `[ActorClient]` interfaces.
+
+Generated code is ordinary C# that calls `ActorSystem`, `ActorRef<TMessage>`, `Send`, and `Call<T>`. It does not require runtime reflection, dynamic proxies, or `MethodInfo.Invoke`.
+
+The analyzer also warns about common unsafe actor usage:
+
+- Actor self-calls through `ctx.Self.Call(...)`.
+- Blocking waits inside actor types.
+- Discarded `Call<T>` request results.
+- Unsupported `[ActorClient]` interface shapes.
+
+See [ULinkActor.SourceGenerator README](./src/ULinkActor.SourceGenerator/README.md) for generated API details.
+
+## Non-Goals
+
+The following are outside ULinkActor Core:
 
 - Cluster
 - Remote Actor
@@ -154,16 +215,12 @@ The following are not part of ULinkActor Core:
 - RPC
 - Runtime reflection driven actor dispatch or proxy generation
 
-These concerns should be handled by [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code.
+These concerns belong in [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code.
 
----
-
-# Contributing
+## Contributing
 
 Project structure, design constraints, test coverage, and development conventions for framework contributors are documented in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
----
-
-# License
+## License
 
 MIT

@@ -5,4 +5,5 @@ public readonly record struct MailboxMetrics(
     int QueuedCount,
     long EnqueuedCount,
     long ProcessedCount,
+    long RejectedCount,
     bool IsCompleted);
