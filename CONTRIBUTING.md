@@ -220,3 +220,31 @@ Tests should protect the actor runtime contract rather than mirror implementatio
 | Registry | Named actor lookup and typed lookup validation. |
 | Source generation | Generated spawn extensions, actor client proxies, generated source shape, and unsupported interface diagnostics. |
 | Analyzer | Actor self-calls, blocking waits inside actors, discarded request calls, and any newly added diagnostics. |
+
+## NuGet Publishing
+
+NuGet publishing is handled by GitHub Actions, not by a local manual push.
+
+Pushing to `main` triggers `.github/workflows/publish-nuget.yml`. The workflow restores test and package projects, runs the test suite, packs `src/ULinkActor/ULinkActor.csproj` into `artifacts/nuget`, and pushes the package to nuget.org with `--skip-duplicate`.
+
+The workflow uses the `release` GitHub environment and `NuGet/login@v1` with `secrets.NUGET_USER`. Do not rely on a local `NUGET_API_KEY` for the normal release path.
+
+`src/ULinkActor.SourceGenerator` is not independently packable. It is packed inside the `ULinkActor` package under `analyzers/dotnet/cs`.
+
+### Version bumping
+
+The package version is defined in `src/ULinkActor/ULinkActor.csproj` via the `<Version>` property.
+
+**Critical rule — any change to library code under `src/` MUST bump the package version before pushing.** The CI workflow pushes to nuget.org with `--skip-duplicate`, so a push without a version bump silently skips publishing. The new code never reaches nuget.org, and downstream consumers get stale packages.
+
+- Bump the `<Version>` in `src/ULinkActor/ULinkActor.csproj` whenever you change source files in `src/`.
+- Bump even for small bug fixes — the version is the only signal that triggers a publish.
+- Do not bump versions for test-only or docs-only changes unless changes in `src/` also need to ship.
+
+If you forget: the CI run will succeed (pack + push with `--skip-duplicate`), but the updated package won't appear on nuget.org. The fix is to bump the version in a follow-up commit and push again.
+
+For local verification only, pack the package without publishing:
+
+```powershell
+dotnet pack src/ULinkActor/ULinkActor.csproj -c Release -o artifacts/nuget
+```
