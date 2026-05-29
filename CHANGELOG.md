@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — Unreleased
+
+### Added
+
+- **Execution timeout**: `ActorSystemOptions.ExecutionTimeout` wraps every message handler with a cancellation token. If the handler exceeds the timeout, a `TimeoutException` is raised and the mailbox advances to the next message. This prevents a single stuck actor from occupying a thread indefinitely.
+- **Actor state machine**: `ActorState` enum (`Active`, `Draining`, `Dead`) exposed via `ActorRef.GetState()` and `ActorSystem.GetActorState()`. Actors now have an explicit, queryable lifecycle.
+- **Message interceptor hooks**: `IActorMessageInterceptor` with `OnBeforeMessage` and `OnAfterMessage` callbacks, configured per-`ActorSystem` via `ActorSystemOptions.MessageInterceptor`. Enables message recording, replay, and custom diagnostics without modifying the runtime.
+- **Design philosophy documentation**: `docs/design-philosophy.md` documents the Skynet-influenced principles behind the runtime.
+
+### Changed
+
+- **Stop flow**: Actor removal from the registry now happens *after* the mailbox drain completes, so `GetActorState()` correctly reports `Draining` during the drain window.
+
+### Removed
+
+- **`ActorCallTimeoutReason.CircularWait`** (breaking): Circular actor call chains now throw `InvalidOperationException` synchronously before any message is queued, rather than waiting for a timeout. Circular calls are a design error, not a runtime condition.
+
 ## 0.2.3 - 2026-05-26
 
 ### Changed

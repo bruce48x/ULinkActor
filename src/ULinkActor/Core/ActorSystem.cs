@@ -27,6 +27,8 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         set => currentCallContext.Value = value;
     }
 
+    internal IActorMessageInterceptor? MessageInterceptor => options.MessageInterceptor;
+
     public ActorSystem()
         : this(new ActorSystemOptions())
     {
@@ -44,6 +46,11 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         if (options.SlowMessageThreshold <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "SlowMessageThreshold must be greater than zero when set.");
+        }
+
+        if (options.ExecutionTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "ExecutionTimeout must be greater than zero when set.");
         }
 
         this.options = options;
@@ -94,7 +101,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         ActorId id = new(Interlocked.Increment(ref nextActorId));
         ActorRef actorRef = new(this, id);
-        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, name);
+        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, options.ExecutionTimeout, name);
 
         if (!actors.TryAdd(id, cell))
         {
@@ -210,9 +217,16 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         TaskCompletionSource<object?> response = new(TaskCreationOptions.RunContinuationsAsynchronously);
         ActorCallContext? caller = CurrentCallContext;
         IReadOnlyList<ActorId> callChain = caller?.CallChain ?? Array.Empty<ActorId>();
-        ActorCallTimeoutReason timeoutReason = callChain.Contains(target)
-            ? ActorCallTimeoutReason.CircularWait
-            : ActorCallTimeoutReason.ResponseTimeout;
+
+        if (callChain.Contains(target))
+        {
+            throw new InvalidOperationException(
+                $"Circular actor call detected. The target actor {target.Value} is already in the call chain " +
+                $"({string.Join(" -> ", callChain.Select(id => id.Value.ToString()))}). " +
+                "Circular calls between actors indicate a design problem. " +
+                "Restructure your actors to avoid circular dependencies.");
+        }
+
         ULinkActorDiagnostics.CallStartedCounter.Add(1);
 
         using CancellationTokenSource timeoutCts = new(timeout);
@@ -227,7 +241,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             target,
             request,
             timeout,
-            timeoutReason,
+            ActorCallTimeoutReason.ResponseTimeout,
             callChain);
 
         using CancellationTokenRegistration timeoutRegistration = timeoutCts.Token.Register(static state =>
@@ -285,19 +299,19 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         bool beganStop = await cell.BeginStopAsync().ConfigureAwait(false);
 
-        actors.TryRemove(target, out _);
-
-        if (cell.Name is not null)
-        {
-            names.TryRemove(cell.Name, out _);
-        }
-
         if (beganStop)
         {
             cell.Complete();
         }
 
         await cell.Completion.ConfigureAwait(false);
+
+        actors.TryRemove(target, out _);
+
+        if (cell.Name is not null)
+        {
+            names.TryRemove(cell.Name, out _);
+        }
     }
 
     public async ValueTask<ActorStopResult> Stop(ActorId target, TimeSpan drainTimeout)
@@ -316,6 +330,23 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         bool beganStop = await cell.BeginStopAsync().ConfigureAwait(false);
 
+        if (beganStop)
+        {
+            cell.Complete();
+        }
+
+        ActorStopResult result;
+
+        try
+        {
+            await cell.Completion.WaitAsync(drainTimeout).ConfigureAwait(false);
+            result = ActorStopResult.Drained;
+        }
+        catch (TimeoutException)
+        {
+            result = ActorStopResult.TimedOut;
+        }
+
         actors.TryRemove(target, out _);
 
         if (cell.Name is not null)
@@ -323,20 +354,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             names.TryRemove(cell.Name, out _);
         }
 
-        if (beganStop)
-        {
-            cell.Complete();
-        }
-
-        try
-        {
-            await cell.Completion.WaitAsync(drainTimeout).ConfigureAwait(false);
-            return ActorStopResult.Drained;
-        }
-        catch (TimeoutException)
-        {
-            return ActorStopResult.TimedOut;
-        }
+        return result;
     }
 
     internal ValueTask Stop(ActorRef actorRef)
@@ -388,6 +406,18 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         ActorCell cell = GetActor(target);
         return cell.GetMailboxMetrics();
+    }
+
+    public ActorState GetActorState(ActorId target)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+
+        if (!actors.TryGetValue(target, out ActorCell? cell))
+        {
+            return ActorState.Dead;
+        }
+
+        return cell.State;
     }
 
     internal MailboxMetrics GetMailboxMetrics(ActorRef actorRef)

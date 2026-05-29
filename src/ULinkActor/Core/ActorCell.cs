@@ -13,6 +13,7 @@ internal sealed class ActorCell
     private readonly ConcurrentBag<IDisposable> timers = new();
     private readonly ActorSystem system;
     private readonly TimeSpan? slowMessageThreshold;
+    private readonly TimeSpan? executionTimeout;
     private int stopping;
 
     public ActorCell(
@@ -22,6 +23,7 @@ internal sealed class ActorCell
         Type messageType,
         int mailboxCapacity,
         TimeSpan? slowMessageThreshold,
+        TimeSpan? executionTimeout,
         string? name)
     {
         this.system = system;
@@ -29,6 +31,7 @@ internal sealed class ActorCell
         this.actor = actor;
         MessageType = messageType;
         this.slowMessageThreshold = slowMessageThreshold;
+        this.executionTimeout = executionTimeout;
         Name = name;
         Mailbox = new MailboxCore(Dispatch, mailboxCapacity);
     }
@@ -44,6 +47,11 @@ internal sealed class ActorCell
     internal Task Completion => Mailbox.Completion;
 
     internal bool IsStopping => Volatile.Read(ref stopping) != 0;
+
+    internal ActorState State =>
+        Volatile.Read(ref stopping) == 0 ? ActorState.Active
+        : Completion.IsCompleted ? ActorState.Dead
+        : ActorState.Draining;
 
     public MailboxMetrics GetMailboxMetrics()
     {
@@ -159,6 +167,7 @@ internal sealed class ActorCell
         IReadOnlyList<ActorId> callChain = AppendCallChain(envelope.CallChain, Self.Id);
         long startedAt = slowMessageThreshold is null ? 0 : Stopwatch.GetTimestamp();
         string messageType = envelope.Message.GetType().FullName ?? envelope.Message.GetType().Name;
+        IActorMessageInterceptor? interceptor = system.MessageInterceptor;
 
         using Activity? activity = StartDispatchActivity(envelope);
 
@@ -167,14 +176,40 @@ internal sealed class ActorCell
         activity?.SetTag("ulinkactor.message.kind", envelope.Response is null ? "send" : "call");
         activity?.SetTag("ulinkactor.call.chain", string.Join(">", callChain.Select(id => id.Value)));
 
+        Exception? error = null;
+
         try
         {
+            if (interceptor is not null)
+            {
+                await interceptor.OnBeforeMessage(Self.Id, envelope.Message, CancellationToken.None).ConfigureAwait(false);
+            }
+
             system.CurrentCallContext = new ActorCallContext(Self.Id, callChain);
-            await actor.OnMessage(context, envelope.Message).ConfigureAwait(false);
+
+            if (executionTimeout is not null)
+            {
+                using var timeoutCts = new CancellationTokenSource(executionTimeout.Value);
+                try
+                {
+                    await actor.OnMessage(context, envelope.Message).AsTask().WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                {
+                    throw new TimeoutException(
+                        $"Actor {Self.Id.Value} message execution timed out after {executionTimeout.Value.TotalMilliseconds:F0}ms.");
+                }
+            }
+            else
+            {
+                await actor.OnMessage(context, envelope.Message).ConfigureAwait(false);
+            }
+
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (Exception ex)
         {
+            error = ex;
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.SetTag("exception.type", ex.GetType().FullName);
             activity?.SetTag("exception.message", ex.Message);
@@ -200,6 +235,18 @@ internal sealed class ActorCell
                     activity?.SetTag("ulinkactor.slow_message", true);
                     activity?.SetTag("ulinkactor.slow_message.elapsed_ms", elapsed.TotalMilliseconds);
                     system.PublishSlowMessage(Self.Id, envelope.Message, elapsed);
+                }
+            }
+
+            if (interceptor is not null)
+            {
+                try
+                {
+                    await interceptor.OnAfterMessage(Self.Id, envelope.Message, error, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Swallow interceptor errors to avoid crashing the mailbox.
                 }
             }
         }

@@ -3,8 +3,7 @@ namespace ULinkActor;
 public enum ActorCallTimeoutReason
 {
     ResponseTimeout = 0,
-    QueueTimeout = 1,
-    CircularWait = 2
+    QueueTimeout = 1
 }
 
 public sealed record ActorCallTimeout(

@@ -2,6 +2,8 @@
 
 This document is for ULinkActor framework contributors. For user-facing introductions, quick starts, and feature descriptions, see [README.md](./README.md).
 
+For the design rationale behind ULinkActor's choices, see **[docs/design-philosophy.md](./docs/design-philosophy.md)**.
+
 ## Contributor Checklist
 
 Before changing ULinkActor:

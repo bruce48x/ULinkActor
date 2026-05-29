@@ -94,23 +94,19 @@ public sealed class ActorSystemTests
 
 
     [Fact]
-    public async Task Call_timeout_diagnostic_identifies_self_call_circular_wait()
+    public async Task Call_immediately_throws_on_circular_call_chain()
     {
         using ActorSystem system = new();
-        TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
+        List<ActorCallTimeout> timeouts = new();
+        system.CallTimedOut += timeouts.Add;
         ActorRef<object> actorRef = system.Spawn(new SelfCallingActor());
 
-        await Assert.ThrowsAsync<TimeoutException>(async () =>
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await actorRef.Call<string>(new StartSelfCall(), TimeSpan.FromSeconds(1)));
 
-        ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
-
-        Assert.Equal(actorRef.Id, timeout.Caller);
-        Assert.Equal(actorRef.Id, timeout.Target);
-        Assert.IsType<InnerSelfCall>(timeout.Request);
-        Assert.Equal(ActorCallTimeoutReason.CircularWait, timeout.Reason);
-        Assert.Equal(new[] { actorRef.Id }, timeout.CallChain);
+        Assert.Contains("Circular actor call detected", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(actorRef.Id.Value.ToString(), exception.Message, StringComparison.Ordinal);
+        Assert.Empty(timeouts);
     }
 
     [Fact]
@@ -807,6 +803,113 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public async Task Actor_state_transitions_from_active_to_draining_to_dead()
+    {
+        using ActorSystem system = new();
+        BlockingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        Assert.Equal(ActorState.Active, actorRef.GetState());
+
+        await actorRef.Send("blocked");
+
+        Task<ActorStopResult> stopTask = actorRef.Stop(TimeSpan.FromMilliseconds(20)).AsTask();
+        await Task.Delay(5);
+
+        Assert.Equal(ActorState.Draining, actorRef.GetState());
+
+        actor.Release();
+        ActorStopResult result = await stopTask;
+
+        Assert.Equal(ActorState.Dead, system.GetActorState(actorRef.Id));
+        Assert.Equal(ActorStopResult.Drained, result);
+    }
+
+    [Fact]
+    public async Task Actor_state_transitions_through_draining_even_when_drain_times_out()
+    {
+        using ActorSystem system = new();
+        BlockingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        await actorRef.Send("blocked");
+
+        ActorStopResult result = await actorRef.Stop(TimeSpan.FromMilliseconds(20));
+
+        Assert.Equal(ActorStopResult.TimedOut, result);
+        Assert.Equal(ActorState.Dead, system.GetActorState(actorRef.Id));
+    }
+
+    [Fact]
+    public async Task Message_interceptor_receives_before_and_after_callbacks()
+    {
+        List<string> events = new();
+        RecordingInterceptor interceptor = new(events);
+
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            MessageInterceptor = interceptor
+        });
+
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+
+        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+
+        Assert.Equal("hello", response);
+        Assert.Equal(2, events.Count);
+        Assert.Equal("before:hello", events[0]);
+        Assert.Equal("after:hello:null", events[1]);
+    }
+
+    [Fact]
+    public async Task Message_interceptor_reports_error_on_failed_dispatch()
+    {
+        List<string> events = new();
+        RecordingInterceptor interceptor = new(events);
+
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            MessageInterceptor = interceptor
+        });
+
+        ActorRef<object> actorRef = system.Spawn(new ThrowingActor());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await actorRef.Call<string>("fail", TimeSpan.FromSeconds(1)));
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal("before:fail", events[0]);
+        Assert.StartsWith("after:fail:", events[1]);
+        Assert.Contains("InvalidOperationException", events[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Execution_timeout_cancels_long_running_message_and_continues_processing()
+    {
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            ExecutionTimeout = TimeSpan.FromMilliseconds(50)
+        });
+
+        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromSeconds(5)));
+
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
+            await actorRef.Call<string>("slow", TimeSpan.FromSeconds(1)));
+
+        Assert.Contains("execution timed out", exception.Message, StringComparison.Ordinal);
+
+        await actorRef.Send("after-timeout");
+        await Eventually(() => actorRef.GetMailboxMetrics().ProcessedCount >= 2);
+    }
+
+    [Fact]
+    public void Execution_timeout_must_be_greater_than_zero()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ActorSystem(new ActorSystemOptions { ExecutionTimeout = TimeSpan.Zero }));
+    }
+
+    [Fact]
     public async Task Send_to_stopped_actor_publishes_dead_letter()
     {
         using ActorSystem system = new();
@@ -1145,6 +1248,29 @@ public sealed class ActorSystemTests
         string InstrumentName,
         long Value,
         KeyValuePair<string, object?>[] Tags);
+
+    private sealed class RecordingInterceptor(List<string> events) : IActorMessageInterceptor
+    {
+        public ValueTask OnBeforeMessage(ActorId actorId, object message, CancellationToken cancellationToken)
+        {
+            events.Add($"before:{message}");
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnAfterMessage(ActorId actorId, object message, Exception? error, CancellationToken cancellationToken)
+        {
+            events.Add($"after:{message}:{error?.GetType().Name ?? "null"}");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingActor : IActor<object>
+    {
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            throw new InvalidOperationException("test failure");
+        }
+    }
 
     private readonly record struct GetValues;
 

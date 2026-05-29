@@ -52,5 +52,10 @@ public sealed class ActorRef<TMessage>
         return inner.GetMailboxMetrics();
     }
 
+    public ActorState GetState()
+    {
+        return inner.GetState();
+    }
+
     public override string ToString() => inner.ToString();
 }

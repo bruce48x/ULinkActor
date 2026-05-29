@@ -63,5 +63,10 @@ internal sealed class ActorRef
         return system.GetMailboxMetrics(Id);
     }
 
+    public ActorState GetState()
+    {
+        return system.GetActorState(Id);
+    }
+
     public override string ToString() => Id.ToString();
 }
