@@ -2,6 +2,8 @@
 
 ULinkActor is a lightweight actor runtime for .NET game servers, inspired by skynet's service model.
 
+For the design rationale, see **[docs/design-philosophy.md](docs/design-philosophy.md)**.
+
 The core idea is deliberately small:
 
 ```text
