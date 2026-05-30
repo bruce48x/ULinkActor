@@ -74,6 +74,38 @@ Source generators and analyzers catch errors before the process starts:
 
 This is the .NET equivalent of skynet's philosophy of catching problems at the earliest possible stage.
 
+### 8. Strongly typed actor APIs
+
+Actor APIs are typed-only. Actors implement `IActor<TMessage>`, callers hold `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type. There is no untyped `object` dispatch path and no runtime `dynamic` fallback.
+
+This eliminates a class of errors — wrong message types, missing handlers, accidental type coercion — at compile time rather than at runtime.
+
+## Boundary Rationale
+
+ULinkActor deliberately excludes features that other actor frameworks treat as core. Each exclusion is a design choice, not an omission.
+
+### Why not distributed?
+
+ULinkActor is a process-local runtime. Distributed features — cluster routing, virtual actors, service discovery, transparent remote references — require different failure models (partition, timeout, retry) and different cost profiles (serialization, network latency). Hiding these behind a uniform local/remote actor API produces systems that work in development and fail under production network conditions.
+
+Related concerns like RPC, serialization, and transport belong in [ULinkRPC](https://github.com/bruce48x/ULinkRPC).
+
+### Why not persistence?
+
+Actor state is in-memory. Persistence, event sourcing, and snapshotting introduce their own design space — storage backends, serialization formats, consistency models, replay semantics. These are application-level concerns that should not be coupled to the mailbox runtime.
+
+### Why not supervision?
+
+Supervisor trees and hierarchical failure handling add complexity that most game server architectures handle at a higher level (process monitors, health checks, orchestrators). ULinkActor provides lifecycle hooks for local cleanup but delegates fault recovery to the host process.
+
+### Why not game concepts?
+
+Rooms, matches, sessions, players, AOI, and other game-specific abstractions have their own lifecycle, networking, and persistence needs. Coupling them to the actor runtime would force a single game architecture on all consumers. These belong in [ULinkGame](https://github.com/bruce48x/ULinkGame) or application code.
+
+### Decision rule
+
+If a feature needs serialization, network routing, persistence, distributed identity, or gameplay semantics, it belongs outside ULinkActor.
+
 ## What ULinkActor Is NOT
 
 - **Not distributed.** It is a process-local actor runtime. Clustering, service discovery, and cross-node messaging belong to higher-level frameworks.

@@ -4,6 +4,19 @@ This document is for ULinkActor framework contributors. For user-facing introduc
 
 For the design rationale behind ULinkActor's choices, see **[docs/design-philosophy.md](./docs/design-philosophy.md)**.
 
+## Documentation Map
+
+This file is the single authority for all contributor and maintenance rules. Supporting documents provide deeper rationale:
+
+| Document | Purpose |
+| --- | --- |
+| [README.md](./README.md) | User-facing introduction, quick start, and feature reference |
+| [docs/design-philosophy.md](./docs/design-philosophy.md) | Design principles, influences, tradeoffs, and rationale |
+| [src/ULinkActor/README.md](./src/ULinkActor/README.md) | NuGet package page (condensed) |
+| [src/ULinkActor.SourceGenerator/README.md](./src/ULinkActor.SourceGenerator/README.md) | Source generator API and usage |
+
+Add new docs under `docs/` and link them here when they address contributor or maintenance concerns.
+
 ## Contributor Checklist
 
 Before changing ULinkActor:
@@ -15,7 +28,7 @@ Before changing ULinkActor:
 - Keep Roslyn dependencies out of the `ULinkActor` runtime assembly.
 - Use .NET 10 and the repository `.slnx` solution format.
 
-## Design Positioning
+## Runtime Identity
 
 ULinkActor is a:
 
@@ -48,37 +61,17 @@ Because of this, state inside a single actor usually does not need `lock`, `Conc
 
 Keep the core small and process-local.
 
-ULinkActor should provide:
+| Boundary | Includes | Excludes |
+| --- | --- | --- |
+| **Messaging** | Typed actors, local refs, `Send`, `Call<T>`, timers | Cluster, virtual actors, transparent remoting |
+| **Mailbox** | Bounded capacity, backpressure, stop/drain | Unbounded queues, supervisor trees |
+| **Lifecycle** | Optional `IActorStarted`/`IActorStopping` hooks | Persistence, event sourcing, DI activation |
+| **Registry** | Named local actor lookup with type validation | Distributed registry, service discovery |
+| **Diagnostics** | `ActivitySource`, `Meter`, dead letters, slow-message | APM binding, structured logging framework |
+| **Tooling** | Compile-time generators, analyzer diagnostics | Runtime reflection dispatch, dynamic proxies |
+| **Application** | Process-local actor/mailbox runtime | Network, RPC, serialization, game concepts, Unity |
 
-- Typed actors.
-- Local actor references.
-- `Send`.
-- `Call<T>`.
-- Timers delivered through actor mailboxes.
-- Bounded mailboxes and explicit backpressure.
-- Named local actor lookup.
-- Bounded stop/drain semantics.
-- Optional local lifecycle hooks.
-- Runtime diagnostics through standard .NET observability APIs.
-- Compile-time generated convenience APIs.
-- Analyzer diagnostics for unsafe actor usage.
-
-ULinkActor should not provide:
-
-- Cluster routing.
-- Transparent remote actor references.
-- Virtual actors.
-- Persistence.
-- Event sourcing.
-- Supervisor trees.
-- Network protocols.
-- RPC transports.
-- Unity integration.
-- MMO business concepts such as Gate, Realm, Scene, Map, AOI, RoomGroup, or gameplay events.
-
-Those concerns belong in ULinkGame, ULinkRPC, or application code.
-
-If a feature needs serialization, network routing, persistence, distributed identity, or gameplay semantics, it belongs outside ULinkActor.
+See [docs/design-philosophy.md](./docs/design-philosophy.md) for the rationale behind each boundary.
 
 ## Project Structure
 

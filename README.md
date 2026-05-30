@@ -2,8 +2,6 @@
 
 ULinkActor is a lightweight actor runtime for .NET game servers, inspired by skynet's service model.
 
-For the design rationale, see **[docs/design-philosophy.md](docs/design-philosophy.md)**.
-
 The core idea is deliberately small:
 
 ```text
@@ -21,16 +19,6 @@ ULinkActor        Process-local actor/mailbox runtime
 ULinkRPC          Networking and RPC
 ULinkGame         Game server infrastructure and gameplay concepts
 ```
-
-## Design Principles
-
-- Keep the runtime process-local and explicit.
-- Make mailbox overload visible through backpressure, rejected sends, dead letters, and metrics.
-- Keep actor APIs strongly typed.
-- Prefer compile-time source generation over runtime reflection.
-- Treat diagnostics as part of the runtime contract.
-- Keep game-specific concepts out of the core.
-- Do not hide network, serialization, retry, or remote timeout behind a local-looking actor reference.
 
 ## Quick Start
 
@@ -197,9 +185,9 @@ The analyzer also warns about common unsafe actor usage:
 
 See [ULinkActor.SourceGenerator README](./src/ULinkActor.SourceGenerator/README.md) for generated API details.
 
-## Non-Goals
+## Scope
 
-The following are outside ULinkActor Core:
+ULinkActor Core is a process-local actor/mailbox runtime. The following are outside scope:
 
 - Cluster
 - Remote Actor
@@ -218,6 +206,11 @@ The following are outside ULinkActor Core:
 - Runtime reflection driven actor dispatch or proxy generation
 
 These concerns belong in [ULinkGame](https://github.com/bruce48x/ULinkGame), [ULinkRPC](https://github.com/bruce48x/ULinkRPC), or application code.
+
+## Documentation
+
+- [Design Philosophy](docs/design-philosophy.md) — principles, tradeoffs, and rationale behind ULinkActor's design
+- [Contributing](CONTRIBUTING.md) — project structure, conventions, and development guide for maintainers
 
 ## Contributing
 
