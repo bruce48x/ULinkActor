@@ -22,7 +22,7 @@
 ### Changed
 
 - Aligned internal namespaces with runtime and source generator directory structure while preserving the public runtime API namespace.
-- Added a focused test solution under `test/test.slnx`.
+- Added a focused test solution under `tests/test.slnx`.
 
 ## 0.2.2 - 2026-05-26
 

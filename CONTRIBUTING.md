@@ -92,7 +92,7 @@ Only .NET 10 is supported:
 The repository uses the .NET 10 `.slnx` solution format:
 
 ```text
-ULinkActor.slnx
+tests/test.slnx
 ```
 
 The package version is defined by `src/ULinkActor/ULinkActor.csproj`.
@@ -106,7 +106,7 @@ The `ULinkActor` runtime targets .NET 10 only and does not declare an extra `Sys
 Use the repository solution for normal validation:
 
 ```powershell
-dotnet test ULinkActor.slnx
+dotnet test tests/test.slnx
 ```
 
 ## Runtime Principles
