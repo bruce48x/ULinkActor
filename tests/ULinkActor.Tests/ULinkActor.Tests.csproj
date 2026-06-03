@@ -22,10 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ULinkActor\ULinkActor.csproj" />
-    <ProjectReference Include="..\..\src\ULinkActor.SourceGenerator\ULinkActor.SourceGenerator.csproj"
+    <ProjectReference Include="../../src/ULinkActor/ULinkActor.csproj" />
+    <ProjectReference Include="../../src/ULinkActor.SourceGenerator/ULinkActor.SourceGenerator.csproj"
                       PrivateAssets="all" />
-    <ProjectReference Include="..\..\src\ULinkActor.SourceGenerator\ULinkActor.SourceGenerator.csproj"
+    <ProjectReference Include="../../src/ULinkActor.SourceGenerator/ULinkActor.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
