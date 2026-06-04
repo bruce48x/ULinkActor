@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using ULinkActor.Abstractions;
 using ULinkActor.Core;
@@ -9,8 +8,7 @@ namespace ULinkActor;
 public sealed class ActorSystem : IAsyncDisposable
 {
     private readonly AsyncLocal<ActorCallContext?> currentCallContext = new();
-    private readonly ConcurrentDictionary<ActorId, ActorCell> actors = new();
-    private readonly ConcurrentDictionary<string, ActorId> names = new(StringComparer.Ordinal);
+    private readonly ActorRegistry registry = new();
     private readonly ActorSystemDiagnosticsPublisher diagnostics = new();
     private readonly ActorSystemOptions options;
     private long nextActorId;
@@ -135,14 +133,14 @@ public sealed class ActorSystem : IAsyncDisposable
         ActorRef actorRef = new(this, id);
         ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, name);
 
-        if (!actors.TryAdd(id, cell))
+        if (!registry.TryAdd(id, cell))
         {
             throw new InvalidOperationException($"Actor id {id} already exists.");
         }
 
-        if (name is not null && !names.TryAdd(name, id))
+        if (name is not null && !registry.TryAddName(name, id))
         {
-            actors.TryRemove(id, out _);
+            registry.Remove(id, cell);
             cell.Complete();
             throw new InvalidOperationException($"Actor name '{name}' already exists.");
         }
@@ -153,13 +151,7 @@ public sealed class ActorSystem : IAsyncDisposable
         }
         catch
         {
-            actors.TryRemove(id, out _);
-
-            if (name is not null)
-            {
-                names.TryRemove(name, out _);
-            }
-
+            registry.Remove(id, cell);
             cell.Complete();
             throw;
         }
@@ -210,7 +202,7 @@ public sealed class ActorSystem : IAsyncDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(message);
 
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "unavailable"));
             diagnostics.PublishDeadLetter(target, message, "Actor does not exist.");
@@ -399,7 +391,7 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             return;
         }
@@ -423,7 +415,7 @@ public sealed class ActorSystem : IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
         }
 
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             return ActorStopResult.Drained;
         }
@@ -476,7 +468,7 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ValidateActorName(name);
 
-        if (!names.TryGetValue(name, out ActorId id))
+        if (!registry.TryGetNamed(name, out ActorId id))
         {
             return ValueTask.CompletedTask;
         }
@@ -493,7 +485,7 @@ public sealed class ActorSystem : IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
         }
 
-        if (!names.TryGetValue(name, out ActorId id))
+        if (!registry.TryGetNamed(name, out ActorId id))
         {
             return ValueTask.FromResult(ActorStopResult.Drained);
         }
@@ -513,7 +505,7 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             return ActorState.Dead;
         }
@@ -532,7 +524,7 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ValidateActorName(name);
 
-        if (names.TryGetValue(name, out ActorId id) && actors.ContainsKey(id))
+        if (registry.TryGetNamed(name, out ActorId id))
         {
             actorRef = new ActorRef(this, id);
             return true;
@@ -566,12 +558,12 @@ public sealed class ActorSystem : IAsyncDisposable
 
     internal bool TryGetActor(ActorId target, out ActorCell? cell)
     {
-        return actors.TryGetValue(target, out cell);
+        return registry.TryGet(target, out cell);
     }
 
     private ActorCell GetActor(ActorId target)
     {
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             throw new InvalidOperationException($"Actor {target} does not exist.");
         }
@@ -581,17 +573,17 @@ public sealed class ActorSystem : IAsyncDisposable
 
     private bool TryGetActor(string name, Type messageType, out ActorRef? actorRef)
     {
-        if (TryGetActor(name, out ActorRef? untyped))
-        {
-            ActorCell cell = GetActor(untyped!.Id);
+        ValidateActorName(name);
 
+        if (registry.TryGetNamed(name, out ActorId id, out ActorCell? cell))
+        {
             if (cell.MessageType != messageType)
             {
                 throw new InvalidOperationException(
                     $"Actor name '{name}' was registered for message type {cell.MessageType.FullName}, not {messageType.FullName}.");
             }
 
-            actorRef = untyped;
+            actorRef = new ActorRef(this, id);
             return true;
         }
 
@@ -601,7 +593,7 @@ public sealed class ActorSystem : IAsyncDisposable
 
     private ActorCell GetActorForDelivery(ActorId target, object message)
     {
-        if (!actors.TryGetValue(target, out ActorCell? cell))
+        if (!registry.TryGet(target, out ActorCell? cell))
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "unavailable"));
             diagnostics.PublishDeadLetter(target, message, "Actor does not exist.");
@@ -632,12 +624,7 @@ public sealed class ActorSystem : IAsyncDisposable
 
     private void RemoveActor(ActorId target, ActorCell cell)
     {
-        actors.TryRemove(target, out _);
-
-        if (cell.Name is not null)
-        {
-            names.TryRemove(cell.Name, out _);
-        }
+        registry.Remove(target, cell);
     }
 
     private static void ValidateActorName(string name)
@@ -664,9 +651,7 @@ public sealed class ActorSystem : IAsyncDisposable
 
         disposed = true;
 
-        ActorCell[] cells = actors.Values.ToArray();
-        actors.Clear();
-        names.Clear();
+        ActorCell[] cells = registry.SnapshotAndClear();
 
         foreach (ActorCell cell in cells)
         {

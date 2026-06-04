@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+### Changed
+
+- Refactored actor and named actor registration into an internal registry component while preserving runtime lookup and lifecycle behavior.
+
 ## 0.5.1
 
 ### Changed

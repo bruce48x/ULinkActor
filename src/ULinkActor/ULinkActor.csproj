@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>ULinkActor</PackageId>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <Title>ULinkActor</Title>
     <Description>Lightweight actor/mailbox runtime for .NET game servers.</Description>
     <PackageTags>actor;mailbox;game-server;runtime;dotnet</PackageTags>
