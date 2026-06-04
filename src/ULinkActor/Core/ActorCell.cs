@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using ULinkActor.Abstractions;
 using ULinkActor.Lifecycle;
 using ULinkActor.Messaging;
@@ -14,6 +15,8 @@ internal sealed class ActorCell
     private readonly ActorSystem system;
     private readonly TimeSpan? slowMessageThreshold;
     private readonly TimeSpan? executionTimeout;
+    private readonly object stopGate = new();
+    private Task? stopTask;
     private int stopping;
 
     public ActorCell(
@@ -94,7 +97,7 @@ internal sealed class ActorCell
 
     public async ValueTask StopAsync()
     {
-        await StopAsync(null, runStoppingHook: false).ConfigureAwait(false);
+        await RequestStopAsync(runStoppingHook: false).ConfigureAwait(false);
     }
 
     public async ValueTask<ActorStopResult> StopAsync(TimeSpan drainTimeout)
@@ -104,54 +107,59 @@ internal sealed class ActorCell
             throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
         }
 
-        return await StopAsync((TimeSpan?)drainTimeout, runStoppingHook: false).ConfigureAwait(false);
+        return await WaitForStop(RequestStopAsync(runStoppingHook: false), drainTimeout).ConfigureAwait(false);
     }
 
-    private async ValueTask<ActorStopResult> StopAsync(TimeSpan? drainTimeout, bool runStoppingHook)
+    public Task RequestStopAsync(bool runStoppingHook = true)
     {
-        if (!await BeginStopAsync(runStoppingHook).ConfigureAwait(false))
+        lock (stopGate)
         {
-            return await WaitForCompletion(drainTimeout).ConfigureAwait(false);
-        }
+            if (stopTask is not null)
+            {
+                return stopTask;
+            }
 
-        Complete();
-        return await WaitForCompletion(drainTimeout).ConfigureAwait(false);
+            Interlocked.Exchange(ref stopping, 1);
+            DisposeTimers();
+            stopTask = RunStopSequenceAsync(runStoppingHook);
+            return stopTask;
+        }
     }
 
-    public async ValueTask<bool> BeginStopAsync(bool runStoppingHook = true)
+    private async Task RunStopSequenceAsync(bool runStoppingHook)
     {
-        if (Interlocked.Exchange(ref stopping, 1) != 0)
-        {
-            return false;
-        }
-
-        DisposeTimers();
-
-        if (runStoppingHook)
-        {
-            await RunStoppingHook().ConfigureAwait(false);
-        }
-
-        return true;
-    }
-
-    private async ValueTask RunStoppingHook()
-    {
-        ActorContextCore context = new(system, Self, this, new Envelope(ActorLifecycleMessage.Stopping));
-        await actor.OnStopping(context).ConfigureAwait(false);
-    }
-
-    private async ValueTask<ActorStopResult> WaitForCompletion(TimeSpan? drainTimeout)
-    {
-        if (drainTimeout is null)
-        {
-            await Completion.ConfigureAwait(false);
-            return ActorStopResult.Drained;
-        }
+        Exception? stopError = null;
 
         try
         {
-            await Completion.WaitAsync(drainTimeout.Value).ConfigureAwait(false);
+            if (runStoppingHook)
+            {
+                TaskCompletionSource<object?> stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                await Mailbox.Send(new Envelope(ActorLifecycleMessage.Stopping, stopped), CancellationToken.None).ConfigureAwait(false);
+                await stopped.Task.ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            stopError = ex;
+        }
+        finally
+        {
+            Complete();
+            await Completion.ConfigureAwait(false);
+        }
+
+        if (stopError is not null)
+        {
+            ExceptionDispatchInfo.Capture(stopError).Throw();
+        }
+    }
+
+    private static async ValueTask<ActorStopResult> WaitForStop(Task stopTask, TimeSpan drainTimeout)
+    {
+        try
+        {
+            await stopTask.WaitAsync(drainTimeout).ConfigureAwait(false);
             return ActorStopResult.Drained;
         }
         catch (TimeoutException)
@@ -187,7 +195,12 @@ internal sealed class ActorCell
 
             system.CurrentCallContext = new ActorCallContext(Self.Id, callChain);
 
-            if (executionTimeout is not null)
+            if (envelope.Message is ActorLifecycleMessage.Stopping)
+            {
+                await actor.OnStopping(context).ConfigureAwait(false);
+                envelope.Response?.TrySetResult(null);
+            }
+            else if (executionTimeout is not null)
             {
                 using var timeoutCts = new CancellationTokenSource(executionTimeout.Value);
                 try

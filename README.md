@@ -116,7 +116,7 @@ Actors may optionally implement:
 
 These hooks are local runtime hooks. Actor state still belongs to the actor, and follow-up work should enter through the mailbox.
 
-Actors can be stopped after draining queued work. Timeout overloads return whether the mailbox drained or the drain timeout elapsed. System disposal is a cleanup path and does not run graceful stop hooks.
+Actors can be stopped after draining queued work. During explicit stop, the runtime closes the actor to new application messages, drains already queued messages, then runs `IActorStopping<TMessage>` as the final mailbox turn before completing the mailbox. Timeout overloads return whether that stop sequence completed within the drain timeout; if the timeout elapses, the actor remains `Draining` until the current work and final stop hook complete. System disposal is a cleanup path and does not run graceful stop hooks.
 
 ### Named Actors
 

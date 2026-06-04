@@ -394,13 +394,53 @@ public sealed class ActorSystemTests
 
         string[] events = actor.Events.ToArray();
         int stoppingIndex = Array.IndexOf(events, "stopping");
-        int stoppingMessageIndex = Array.IndexOf(events, "stopping-message");
 
-        Assert.Equal(4, events.Length);
+        Assert.Equal(3, events.Length);
         Assert.Equal("started", events[0]);
         Assert.Contains("started-message", events);
         Assert.True(stoppingIndex >= 0);
-        Assert.True(stoppingMessageIndex > stoppingIndex);
+    }
+
+    [Fact]
+    public async Task Actor_stop_hook_runs_after_current_message_without_concurrency()
+    {
+        using ActorSystem system = new();
+        SerializedStoppingActor actor = new();
+        ActorRef<object> actorRef = system.Spawn(actor);
+
+        await actorRef.Send("block");
+        await actor.MessageStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Task<ActorStopResult> stopTask = actorRef.Stop(TimeSpan.FromSeconds(1)).AsTask();
+        try
+        {
+            await Task.Delay(50);
+
+            Assert.False(actor.StoppingStarted.Task.IsCompleted);
+        }
+        finally
+        {
+            actor.Release();
+        }
+
+        ActorStopResult result = await stopTask.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(ActorStopResult.Drained, result);
+        Assert.Equal(1, actor.MaxConcurrency);
+        Assert.Equal(new[] { "message-start", "message-end", "stopping" }, actor.Events);
+    }
+
+    [Fact]
+    public async Task Actor_stop_hook_failure_completes_and_removes_actor()
+    {
+        using ActorSystem system = new();
+        ActorRef<object> actorRef = system.Spawn<object>("bad-stop", new FailingStopActor());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await actorRef.Stop(TimeSpan.FromSeconds(1)));
+
+        Assert.Equal(ActorState.Dead, system.GetActorState(actorRef.Id));
+        Assert.False(system.TryGetActor<object>("bad-stop", out _));
     }
 
     [Fact]
@@ -763,7 +803,7 @@ public sealed class ActorSystemTests
         DeadLetter deadLetter = Assert.Single(deadLetters);
         Assert.Equal(actorRef.Id, deadLetter.Target);
         Assert.Equal("late", deadLetter.Message);
-        Assert.Equal("Actor does not exist.", deadLetter.Reason);
+        Assert.Equal("Actor is stopping.", deadLetter.Reason);
 
         actor.Release();
     }
@@ -826,7 +866,7 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
-    public async Task Actor_state_transitions_through_draining_even_when_drain_times_out()
+    public async Task Actor_state_stays_draining_when_drain_times_out_until_work_finishes()
     {
         using ActorSystem system = new();
         BlockingActor actor = new();
@@ -837,7 +877,10 @@ public sealed class ActorSystemTests
         ActorStopResult result = await actorRef.Stop(TimeSpan.FromMilliseconds(20));
 
         Assert.Equal(ActorStopResult.TimedOut, result);
-        Assert.Equal(ActorState.Dead, system.GetActorState(actorRef.Id));
+        Assert.Equal(ActorState.Draining, actorRef.GetState());
+
+        actor.Release();
+        await Eventually(() => system.GetActorState(actorRef.Id) == ActorState.Dead);
     }
 
     [Fact]
@@ -1195,10 +1238,10 @@ public sealed class ActorSystemTests
             await ctx.Self.Send(new StartedMessage());
         }
 
-        public async ValueTask OnStopping(ActorContext<object> ctx)
+        public ValueTask OnStopping(ActorContext<object> ctx)
         {
             events.Add("stopping");
-            await ctx.Self.Send(new StoppingMessage());
+            return ValueTask.CompletedTask;
         }
 
         public ValueTask OnMessage(ActorContext<object> ctx, object message)
@@ -1207,9 +1250,6 @@ public sealed class ActorSystemTests
             {
                 case StartedMessage:
                     events.Add("started-message");
-                    break;
-                case StoppingMessage:
-                    events.Add("stopping-message");
                     break;
                 case GetLifecycleEvents:
                     events.Add("get");
@@ -1231,6 +1271,68 @@ public sealed class ActorSystemTests
         public ValueTask OnMessage(ActorContext<object> ctx, object message)
         {
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingStopActor : IActor<object>, IActorStopping<object>
+    {
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnStopping(ActorContext<object> ctx)
+        {
+            throw new InvalidOperationException("stop failed");
+        }
+    }
+
+    private sealed class SerializedStoppingActor : IActor<object>, IActorStopping<object>
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<string> events = new();
+        private int active;
+        private int maxConcurrency;
+
+        public TaskCompletionSource MessageStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource StoppingStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyList<string> Events => events;
+
+        public int MaxConcurrency => maxConcurrency;
+
+        public async ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            int current = Interlocked.Increment(ref active);
+            maxConcurrency = Math.Max(maxConcurrency, current);
+            events.Add("message-start");
+            MessageStarted.SetResult();
+
+            try
+            {
+                await release.Task;
+                events.Add("message-end");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        }
+
+        public ValueTask OnStopping(ActorContext<object> ctx)
+        {
+            int current = Interlocked.Increment(ref active);
+            maxConcurrency = Math.Max(maxConcurrency, current);
+            events.Add("stopping");
+            StoppingStarted.SetResult();
+            Interlocked.Decrement(ref active);
+            return ValueTask.CompletedTask;
+        }
+
+        public void Release()
+        {
+            release.SetResult();
         }
     }
 
@@ -1297,8 +1399,6 @@ public sealed class ActorSystemTests
     private readonly record struct GetOffloadResult;
 
     private readonly record struct StartedMessage;
-
-    private readonly record struct StoppingMessage;
 
     private readonly record struct GetLifecycleEvents;
 

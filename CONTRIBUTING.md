@@ -129,7 +129,7 @@ Long-running or blocking work must not monopolize actor execution while touching
 
 ### Shutdown Semantics
 
-Shutdown should be explicit and bounded. Graceful stop hooks are for explicit stop paths. System disposal is a cleanup path and should not run user graceful-stop logic that depends on mailbox delivery.
+Shutdown should be explicit and bounded. Graceful stop hooks are for explicit stop paths. During explicit stop, new application messages are rejected, queued messages drain, and `IActorStopping<TMessage>` runs as the final mailbox turn before completion. If a drain timeout elapses, the actor remains `Draining` until the current work and final stop hook finish. System disposal is a cleanup path and should not run user graceful-stop logic that depends on mailbox delivery.
 
 ## Source Generation Boundaries
 
@@ -171,11 +171,11 @@ Avoid adding runtime reflection-based alternatives unless they are optional tool
 Lifecycle hooks are optional public contracts:
 
 - `IActorStarted<TMessage>` runs after the actor is registered.
-- `IActorStopping<TMessage>` runs during explicit graceful stop before the mailbox is completed.
+- `IActorStopping<TMessage>` runs during explicit graceful stop as the final mailbox turn before the mailbox is completed.
 
 The minimum actor contract remains `IActor<TMessage>`. Do not require lifecycle hooks for ordinary actors.
 
-Lifecycle hooks are local runtime hooks, not supervision, persistence, dependency injection, or distributed activation. If a hook schedules follow-up work, that work should still enter through the mailbox.
+Lifecycle hooks are local runtime hooks, not supervision, persistence, dependency injection, or distributed activation. `IActorStopping<TMessage>` should do final cleanup directly because the actor is already closed to new application messages when it runs.
 
 ## Long-Running Work
 

@@ -89,7 +89,7 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - `Send` supports fire-and-forget messaging.
 - `Call<T>` supports request/response workflows.
 - Timer messages enter the actor mailbox and follow the same sequential execution rule.
-- Optional `IActorStarted<TMessage>` and `IActorStopping<TMessage>` hooks support local startup and graceful stop work.
+- Optional `IActorStarted<TMessage>` and `IActorStopping<TMessage>` hooks support local startup and graceful stop work. During explicit stop, `IActorStopping<TMessage>` runs as the final mailbox turn after queued messages drain.
 - Bounded mailbox capacity provides backpressure.
 - **Execution timeout** (0.3.0): opt-in per-message timeout interrupts stuck handlers via `WaitAsync`. The mailbox continues to the next message.
 - **Actor state machine** (0.3.0): `ActorState` enum (`Active` / `Draining` / `Dead`) exposed via `GetState()`.

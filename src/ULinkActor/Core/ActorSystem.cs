@@ -177,6 +177,13 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             return ActorSendResult.ActorUnavailable;
         }
 
+        if (cell.IsStopping)
+        {
+            ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "stopping"));
+            PublishDeadLetter(target, message, "Actor is stopping.");
+            return ActorSendResult.ActorUnavailable;
+        }
+
         if (cell.TrySend(new Envelope(
             message,
             callChain: GetCurrentCallChain(),
@@ -297,20 +304,13 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             return;
         }
 
-        bool beganStop = await cell.BeginStopAsync().ConfigureAwait(false);
-
-        if (beganStop)
+        try
         {
-            cell.Complete();
+            await cell.RequestStopAsync().ConfigureAwait(false);
         }
-
-        await cell.Completion.ConfigureAwait(false);
-
-        actors.TryRemove(target, out _);
-
-        if (cell.Name is not null)
+        finally
         {
-            names.TryRemove(cell.Name, out _);
+            RemoveActor(target, cell);
         }
     }
 
@@ -328,30 +328,31 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             return ActorStopResult.Drained;
         }
 
-        bool beganStop = await cell.BeginStopAsync().ConfigureAwait(false);
-
-        if (beganStop)
-        {
-            cell.Complete();
-        }
-
         ActorStopResult result;
+        Task stopTask = cell.RequestStopAsync();
 
         try
         {
-            await cell.Completion.WaitAsync(drainTimeout).ConfigureAwait(false);
+            await stopTask.WaitAsync(drainTimeout).ConfigureAwait(false);
             result = ActorStopResult.Drained;
         }
         catch (TimeoutException)
         {
             result = ActorStopResult.TimedOut;
         }
-
-        actors.TryRemove(target, out _);
-
-        if (cell.Name is not null)
+        catch
         {
-            names.TryRemove(cell.Name, out _);
+            RemoveActor(target, cell);
+            throw;
+        }
+
+        if (result == ActorStopResult.Drained)
+        {
+            RemoveActor(target, cell);
+        }
+        else
+        {
+            _ = RemoveActorWhenCompleted(target, cell);
         }
 
         return result;
@@ -507,7 +508,36 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             throw new InvalidOperationException($"Actor {target} does not exist.");
         }
 
+        if (cell.IsStopping)
+        {
+            ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "stopping"));
+            PublishDeadLetter(target, message, "Actor is stopping.");
+            throw new InvalidOperationException($"Actor {target} is stopping.");
+        }
+
         return cell;
+    }
+
+    private async Task RemoveActorWhenCompleted(ActorId target, ActorCell cell)
+    {
+        try
+        {
+            await cell.Completion.ConfigureAwait(false);
+        }
+        finally
+        {
+            RemoveActor(target, cell);
+        }
+    }
+
+    private void RemoveActor(ActorId target, ActorCell cell)
+    {
+        actors.TryRemove(target, out _);
+
+        if (cell.Name is not null)
+        {
+            names.TryRemove(cell.Name, out _);
+        }
     }
 
     private static void ValidateActorName(string name)
@@ -627,6 +657,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         return reason switch
         {
             "Actor does not exist." => "unavailable",
+            "Actor is stopping." => "stopping",
             "Actor mailbox is completed." => "completed",
             "Actor mailbox is full." => "full",
             _ => "other"
