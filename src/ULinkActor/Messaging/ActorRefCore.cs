@@ -40,12 +40,12 @@ internal sealed class ActorRef
 
     public ValueTask<TResponse> Call<TResponse>(
         object request,
-        TimeSpan timeout,
+        ActorCallOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return system.Call<TResponse>(Id, request, timeout, cancellationToken);
+        return system.Call<TResponse>(Id, request, options, cancellationToken);
     }
 
     public ValueTask Stop()

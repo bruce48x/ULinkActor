@@ -5,6 +5,8 @@ namespace ULinkActor.Tests;
 
 public sealed class ActorSystemTests
 {
+    private static readonly ActorCallOptions DefaultCallOptions = CallOptions(TimeSpan.FromSeconds(1));
+
     [Fact]
     public async Task Send_dispatches_message()
     {
@@ -23,9 +25,21 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
-        string response = await actorRef.Call<string>("ping", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("ping", DefaultCallOptions);
 
         Assert.Equal("ping", response);
+    }
+
+    [Fact]
+    public void Call_requires_distinct_queue_and_response_timeouts()
+    {
+        System.Reflection.MethodInfo call = Assert.Single(
+            typeof(ActorRef<object>).GetMethods().Where(static method => method.Name == nameof(ActorRef<object>.Call)));
+
+        Type[] parameterTypes = call.GetParameters().Select(static parameter => parameter.ParameterType).ToArray();
+
+        Assert.Contains(typeof(ActorCallOptions), parameterTypes);
+        Assert.DoesNotContain(typeof(TimeSpan), parameterTypes);
     }
 
     [Fact]
@@ -35,7 +49,7 @@ public sealed class ActorSystemTests
         ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
-            await actorRef.Call<string>("ping", TimeSpan.FromMilliseconds(20)));
+            await actorRef.Call<string>("ping", CallOptions(TimeSpan.FromMilliseconds(20))));
     }
 
     [Fact]
@@ -45,15 +59,19 @@ public sealed class ActorSystemTests
         TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
         system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
         ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
+        ActorCallOptions options = new(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(20));
 
         TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
-            await actorRef.Call<string>("ping", TimeSpan.FromMilliseconds(20)));
+            await actorRef.Call<string>("ping", options));
 
         ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Null(timeout.Caller);
         Assert.Equal(actorRef.Id, timeout.Target);
         Assert.Equal(typeof(string).FullName, timeout.RequestType);
+        Assert.Equal(options.QueueTimeout, timeout.QueueTimeout);
+        Assert.Equal(options.ResponseTimeout, timeout.ResponseTimeout);
+        Assert.True(timeout.Elapsed >= options.ResponseTimeout);
         Assert.Equal(ActorCallTimeoutReason.ResponseTimeout, timeout.Reason);
         Assert.Empty(timeout.CallChain);
         Assert.Contains($"Target={actorRef.Id.Value}", exception.Message, StringComparison.Ordinal);
@@ -68,19 +86,24 @@ public sealed class ActorSystemTests
         BlockingActor actor = new();
         ActorHandle<object> actorHandle = system.Spawn(actor);
         ActorRef<object> actorRef = actorHandle.Ref;
+        ActorCallOptions options = new(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(5));
 
         try
         {
             await actorRef.Send("first");
 
             TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
-                await actorRef.Call<string>("queued", TimeSpan.FromMilliseconds(20)));
+                await actorRef.Call<string>("queued", options));
 
             ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
             Assert.Null(timeout.Caller);
             Assert.Equal(actorRef.Id, timeout.Target);
             Assert.Equal(typeof(string).FullName, timeout.RequestType);
+            Assert.Equal(options.QueueTimeout, timeout.QueueTimeout);
+            Assert.Equal(options.ResponseTimeout, timeout.ResponseTimeout);
+            Assert.True(timeout.Elapsed >= options.QueueTimeout);
+            Assert.True(timeout.Elapsed < options.ResponseTimeout);
             Assert.Equal(ActorCallTimeoutReason.QueueTimeout, timeout.Reason);
             Assert.Empty(timeout.CallChain);
             Assert.Contains("before it could be queued", exception.Message, StringComparison.Ordinal);
@@ -93,6 +116,37 @@ public sealed class ActorSystemTests
         await Eventually(() => actorHandle.GetMailboxMetrics().ProcessedCount == 1);
     }
 
+    [Fact]
+    public async Task Call_allows_zero_queue_timeout_when_mailbox_has_capacity()
+    {
+        using ActorSystem system = new();
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorCallOptions options = new(TimeSpan.Zero, TimeSpan.FromSeconds(1));
+
+        string response = await actorRef.Call<string>("ping", options);
+
+        Assert.Equal("ping", response);
+    }
+
+    [Fact]
+    public async Task Call_honors_cancellation_before_zero_queue_timeout_enqueue()
+    {
+        using ActorSystem system = new();
+        ActorHandle<object> actorHandle = system.Spawn(new ProbeActor());
+        using CancellationTokenSource cancellation = new();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await actorHandle.Ref.Call<string>(
+                "ping",
+                new ActorCallOptions(TimeSpan.Zero, TimeSpan.FromSeconds(1)),
+                cancellation.Token));
+
+        await Task.Delay(50);
+
+        Assert.Equal(0, actorHandle.GetMailboxMetrics().ProcessedCount);
+    }
+
 
     [Fact]
     public async Task Call_immediately_throws_on_circular_call_chain()
@@ -103,7 +157,7 @@ public sealed class ActorSystemTests
         ActorRef<object> actorRef = system.Spawn(new SelfCallingActor());
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await actorRef.Call<string>(new StartSelfCall(), TimeSpan.FromSeconds(1)));
+            await actorRef.Call<string>(new StartSelfCall(), DefaultCallOptions));
 
         Assert.Contains("Circular actor call detected", exception.Message, StringComparison.Ordinal);
         Assert.Contains(actorRef.Id.Value.ToString(), exception.Message, StringComparison.Ordinal);
@@ -120,7 +174,7 @@ public sealed class ActorSystemTests
         ActorRef<object> upstream = system.Spawn(new DownstreamCallingActor(downstream));
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
-            await upstream.Call<string>(new StartDownstreamCall(), TimeSpan.FromSeconds(1)));
+            await upstream.Call<string>(new StartDownstreamCall(), DefaultCallOptions));
 
         ActorCallTimeout timeout = await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
@@ -142,7 +196,7 @@ public sealed class ActorSystemTests
             await actorRef.Send(i);
         }
 
-        int[] values = await actorRef.Call<int[]>(new GetValues(), TimeSpan.FromSeconds(1));
+        int[] values = await actorRef.Call<int[]>(new GetValues(), DefaultCallOptions);
 
         Assert.Equal(Enumerable.Range(0, 64), values);
     }
@@ -159,7 +213,7 @@ public sealed class ActorSystemTests
 
         await Task.WhenAll(sends);
 
-        int maxConcurrency = await actorRef.Call<int>(new GetMaxConcurrency(), TimeSpan.FromSeconds(1));
+        int maxConcurrency = await actorRef.Call<int>(new GetMaxConcurrency(), DefaultCallOptions);
 
         Assert.Equal(1, maxConcurrency);
     }
@@ -173,7 +227,7 @@ public sealed class ActorSystemTests
         await actorRef.Send(new StartTimer());
         await Task.Delay(80);
 
-        int ticks = await actorRef.Call<int>(new GetTickCount(), TimeSpan.FromSeconds(1));
+        int ticks = await actorRef.Call<int>(new GetTickCount(), DefaultCallOptions);
 
         Assert.True(ticks > 0);
     }
@@ -339,6 +393,10 @@ public sealed class ActorSystemTests
         Assert.NotNull(typeof(SlowMessage).GetProperty("MessageType"));
         Assert.Null(typeof(ActorCallTimeout).GetProperty("Request"));
         Assert.NotNull(typeof(ActorCallTimeout).GetProperty("RequestType"));
+        Assert.Null(typeof(ActorCallTimeout).GetProperty("Timeout"));
+        Assert.NotNull(typeof(ActorCallTimeout).GetProperty("QueueTimeout"));
+        Assert.NotNull(typeof(ActorCallTimeout).GetProperty("ResponseTimeout"));
+        Assert.NotNull(typeof(ActorCallTimeout).GetProperty("Elapsed"));
     }
 
     [Fact]
@@ -382,7 +440,7 @@ public sealed class ActorSystemTests
         ActorRef<CounterMessage> counter = system.Spawn<CounterMessage>(new CounterActor());
 
         await counter.Send(new Add(2));
-        int value = await counter.Call<int>(new GetCounter(), TimeSpan.FromSeconds(1));
+        int value = await counter.Call<int>(new GetCounter(), DefaultCallOptions);
 
         Assert.Equal(2, value);
     }
@@ -412,7 +470,7 @@ public sealed class ActorSystemTests
         ActorHandle<object> actorHandle = system.Spawn(actor);
         ActorRef<object> actorRef = actorHandle.Ref;
 
-        string[] events = await actorRef.Call<string[]>(new GetLifecycleEvents(), TimeSpan.FromSeconds(1));
+        string[] events = await actorRef.Call<string[]>(new GetLifecycleEvents(), DefaultCallOptions);
 
         Assert.Equal(["started", "started-message", "get"], events);
         await actorHandle.Stop();
@@ -561,7 +619,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
-        string response = await actorRef.Call<string>("trace-me", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("trace-me", DefaultCallOptions);
         Activity activity = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Equal("trace-me", response);
@@ -599,7 +657,7 @@ public sealed class ActorSystemTests
         Assert.NotNull(parent);
 
         await actorRef.Send("trace-send");
-        string response = await actorRef.Call<string>("trace-call", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("trace-call", DefaultCallOptions);
         await Eventually(() => stopped.Count >= 2);
 
         Assert.Equal("trace-call", response);
@@ -692,9 +750,9 @@ public sealed class ActorSystemTests
         try
         {
             await echo.Send("send");
-            _ = await echo.Call<string>("call", TimeSpan.FromSeconds(1));
+            _ = await echo.Call<string>("call", DefaultCallOptions);
             await Assert.ThrowsAsync<TimeoutException>(async () =>
-                await ignoring.Call<string>("timeout", TimeSpan.FromMilliseconds(20)));
+                await ignoring.Call<string>("timeout", CallOptions(TimeSpan.FromMilliseconds(20))));
             await blocked.Send("active");
             await blocked.Send("queued");
             await stoppedHandle.Stop();
@@ -741,7 +799,7 @@ public sealed class ActorSystemTests
         ActorRef<object> spawned = system.Spawn("echo", new EchoActor());
 
         ActorRef<object> resolved = system.GetActor<object>("echo");
-        string response = await resolved.Call<string>("named", TimeSpan.FromSeconds(1));
+        string response = await resolved.Call<string>("named", DefaultCallOptions);
 
         Assert.Equal(spawned.Id, resolved.Id);
         Assert.Equal("named", response);
@@ -778,7 +836,7 @@ public sealed class ActorSystemTests
 
         ActorRef<CounterMessage> resolved = system.GetActor<CounterMessage>("counter");
         await resolved.Send(new Add(3));
-        int value = await spawned.Call<int>(new GetCounter(), TimeSpan.FromSeconds(1));
+        int value = await spawned.Call<int>(new GetCounter(), DefaultCallOptions);
 
         Assert.Equal(spawned.Id, resolved.Id);
         Assert.Equal(3, value);
@@ -802,7 +860,7 @@ public sealed class ActorSystemTests
             new GeneratedCounterActor());
 
         await counter.Send(new GeneratedAdd(9));
-        int value = await counter.Call<int>(new GeneratedGetCounter(), TimeSpan.FromSeconds(1));
+        int value = await counter.Call<int>(new GeneratedGetCounter(), DefaultCallOptions);
 
         Assert.Equal(9, value);
     }
@@ -813,7 +871,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         ActorRef<GeneratedCounterClientMessage> counterActor = system.Spawn<GeneratedCounterClientMessage>(
             new GeneratedCounterClientActor());
-        IGeneratedCounterClient counter = counterActor.AsGeneratedCounterClient(TimeSpan.FromSeconds(1));
+        IGeneratedCounterClient counter = counterActor.AsGeneratedCounterClient(DefaultCallOptions);
 
         await counter.Add(11);
         int value = await counter.GetCounter();
@@ -912,7 +970,7 @@ public sealed class ActorSystemTests
 
         await actorRef.Send(new StartOffload(21));
         await Eventually(() => actor.Events.Contains("complete"));
-        int doubled = await actorRef.Call<int>(new GetOffloadResult(), TimeSpan.FromSeconds(1));
+        int doubled = await actorRef.Call<int>(new GetOffloadResult(), DefaultCallOptions);
 
         Assert.Equal(42, doubled);
         Assert.Equal(new[] { "start", "complete", "get" }, actor.Events);
@@ -975,7 +1033,7 @@ public sealed class ActorSystemTests
 
         ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
-        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("hello", DefaultCallOptions);
 
         Assert.Equal("hello", response);
         Assert.Equal(2, events.Count);
@@ -997,7 +1055,7 @@ public sealed class ActorSystemTests
         ActorRef<object> actorRef = system.Spawn(new ThrowingActor());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await actorRef.Call<string>("fail", TimeSpan.FromSeconds(1)));
+            await actorRef.Call<string>("fail", DefaultCallOptions));
 
         Assert.Equal(2, events.Count);
         Assert.Equal("before:fail", events[0]);
@@ -1017,7 +1075,7 @@ public sealed class ActorSystemTests
 
         ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
-        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("hello", DefaultCallOptions);
         ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Equal("hello", response);
@@ -1038,7 +1096,7 @@ public sealed class ActorSystemTests
 
         ActorRef<object> actorRef = system.Spawn(new EchoActor());
 
-        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+        string response = await actorRef.Call<string>("hello", DefaultCallOptions);
         ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Equal("hello", response);
@@ -1288,7 +1346,7 @@ public sealed class ActorSystemTests
             if (message is StartSelfCall)
             {
 #pragma warning disable ULA001
-                await ctx.Self.Call<string>(new InnerSelfCall(), TimeSpan.FromMilliseconds(20));
+                await ctx.Self.Call<string>(new InnerSelfCall(), CallOptions(TimeSpan.FromMilliseconds(20)));
 #pragma warning restore ULA001
             }
         }
@@ -1300,7 +1358,7 @@ public sealed class ActorSystemTests
         {
             if (message is StartDownstreamCall)
             {
-                await downstream.Call<string>(new DownstreamRequest(), TimeSpan.FromMilliseconds(20));
+                await downstream.Call<string>(new DownstreamRequest(), CallOptions(TimeSpan.FromMilliseconds(20)));
             }
         }
     }
@@ -1446,6 +1504,11 @@ public sealed class ActorSystemTests
         {
             await Task.Delay(10, timeout.Token);
         }
+    }
+
+    private static ActorCallOptions CallOptions(TimeSpan timeout)
+    {
+        return new ActorCallOptions(timeout, timeout);
     }
 
     private sealed record MetricMeasurement(

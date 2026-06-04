@@ -20,7 +20,7 @@ public sealed class ActorUsageAnalyzerTests
             {
                 public async ValueTask OnMessage(ActorContext<object> ctx, object message)
                 {
-                    await ctx.Self.Call<string>(message, TimeSpan.FromSeconds(1));
+                    await ctx.Self.Call<string>(message, new ActorCallOptions(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
                 }
             }
             """;
@@ -132,8 +132,8 @@ public sealed class ActorUsageAnalyzerTests
             {
                 public void Run(ActorRef<object> actor)
                 {
-                    actor.Call<string>("ping", TimeSpan.FromSeconds(1));
-                    _ = actor.Call<string>("ping", TimeSpan.FromSeconds(1));
+                    actor.Call<string>("ping", new ActorCallOptions(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+                    _ = actor.Call<string>("ping", new ActorCallOptions(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
                 }
             }
             """;
@@ -157,7 +157,7 @@ public sealed class ActorUsageAnalyzerTests
             {
                 public async ValueTask<string> Run(ActorRef<object> actor)
                 {
-                    ValueTask<string> pending = actor.Call<string>("ping", TimeSpan.FromSeconds(1));
+                    ValueTask<string> pending = actor.Call<string>("ping", new ActorCallOptions(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
                     return await pending;
                 }
             }

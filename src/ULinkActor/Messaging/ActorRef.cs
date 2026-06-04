@@ -29,12 +29,12 @@ public sealed class ActorRef<TMessage>
 
     public ValueTask<TResponse> Call<TResponse>(
         TMessage request,
-        TimeSpan timeout,
+        ActorCallOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return inner.Call<TResponse>(request, timeout, cancellationToken);
+        return inner.Call<TResponse>(request, options, cancellationToken);
     }
 
     public override string ToString() => inner.ToString();

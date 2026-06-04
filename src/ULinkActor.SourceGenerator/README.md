@@ -16,7 +16,7 @@ Install the runtime package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.2.0" />
+  <PackageReference Include="ULinkActor" Version="0.3.5" />
 </ItemGroup>
 ```
 
@@ -104,7 +104,10 @@ The generator emits a public client message interface, public request records th
 
 ```csharp
 ActorHandle<RoomActorClientMessage> roomActor = system.Spawn<RoomActorClientMessage>(new RoomActor());
-IRoomActorClient room = roomActor.Ref.AsRoomActorClient(TimeSpan.FromSeconds(1));
+ActorCallOptions callOptions = new(
+    QueueTimeout: TimeSpan.FromMilliseconds(50),
+    ResponseTimeout: TimeSpan.FromSeconds(1));
+IRoomActorClient room = roomActor.Ref.AsRoomActorClient(callOptions);
 
 await room.Join(10001);
 int count = await room.GetPlayerCount();
@@ -113,7 +116,7 @@ int count = await room.GetPlayerCount();
 The generated wrapper lowers:
 
 - `ValueTask` methods into `ActorRef<TMessage>.Send(...)`.
-- `ValueTask<T>` methods into `ActorRef<TMessage>.Call<T>(..., callTimeout)`.
+- `ValueTask<T>` methods into `ActorRef<TMessage>.Call<T>(..., callOptions)`.
 
 The actor handles the generated request record types:
 

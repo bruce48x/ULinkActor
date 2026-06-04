@@ -10,6 +10,8 @@ public sealed record ActorCallTimeout(
     ActorId? Caller,
     ActorId Target,
     string RequestType,
-    TimeSpan Timeout,
+    TimeSpan QueueTimeout,
+    TimeSpan ResponseTimeout,
+    TimeSpan Elapsed,
     ActorCallTimeoutReason Reason,
     IReadOnlyList<ActorId> CallChain);

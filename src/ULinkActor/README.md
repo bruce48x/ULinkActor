@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.2.0" />
+  <PackageReference Include="ULinkActor" Version="0.3.5" />
 </ItemGroup>
 ```
 
@@ -73,7 +73,11 @@ public sealed class RoomActor : IActor<RoomMessage>
     }
 }
 
-int count = await room.Ref.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
+ActorCallOptions callOptions = new(
+    QueueTimeout: TimeSpan.FromMilliseconds(50),
+    ResponseTimeout: TimeSpan.FromSeconds(1));
+
+int count = await room.Ref.Call<int>(new GetPlayerCount(), callOptions);
 ```
 
 Generated typed spawn extension methods are included with the `ULinkActor` package as compile-time source generator output.
@@ -87,7 +91,7 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - One actor owns one mailbox.
 - Messages are processed sequentially inside each actor.
 - `Send` supports fire-and-forget messaging.
-- `Call<T>` supports request/response workflows.
+- `Call<T>` supports request/response workflows with distinct queue and response timeouts through `ActorCallOptions`.
 - `ActorRef<TMessage>` is message-only; `ActorHandle<TMessage>` owns lifecycle and diagnostics.
 - Timer messages enter the actor mailbox and follow the same sequential execution rule.
 - Optional `IActorStarted<TMessage>` and `IActorStopping<TMessage>` hooks support local startup and graceful stop work. During explicit stop, `IActorStopping<TMessage>` runs as the final mailbox turn after queued messages drain.

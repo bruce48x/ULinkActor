@@ -48,7 +48,8 @@ Every resource has an explicit, configurable limit:
 | Resource | Default | Behavior on exhaustion |
 |----------|---------|----------------------|
 | Mailbox capacity | 1024 | `TrySend` returns `MailboxFull`; `Send` awaits capacity |
-| Execution timeout | none (opt-in) | `TimeoutException`, mailbox continues |
+| Call queue timeout | per call | `TimeoutException` before the request is accepted |
+| Call response timeout | per call | `TimeoutException` after the request is accepted but not answered |
 | Slow message threshold | none (opt-in) | Diagnostic event published |
 
 Unbounded queues hide problems until the process runs out of memory. Bounded queues expose bottlenecks early, when they are cheap to fix.
@@ -129,4 +130,4 @@ Actor message handlers return `ValueTask` to avoid allocations for synchronous c
 
 ## Versioning
 
-ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.4.
+ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.5.

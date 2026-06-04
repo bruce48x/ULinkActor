@@ -77,6 +77,28 @@ public sealed class ActorClientGeneratorTests
         Assert.Empty(diagnostics);
     }
 
+    [Fact]
+    public void Generator_uses_actor_call_options_for_request_response_methods()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            [ActorClient]
+            public interface IRoomClient
+            {
+                ValueTask<int> Count();
+            }
+            """;
+
+        string generatedSource = GetGeneratedSource(source);
+
+        Assert.Contains("global::ULinkActor.ActorCallOptions callOptions", generatedSource, StringComparison.Ordinal);
+        Assert.Contains("actor.Call<", generatedSource, StringComparison.Ordinal);
+        Assert.Contains("new RoomClientCountRequest(), callOptions)", generatedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("global::System.TimeSpan callTimeout", generatedSource, StringComparison.Ordinal);
+    }
+
     private static Diagnostic[] GetGeneratorDiagnostics(string source)
     {
         SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
@@ -96,6 +118,25 @@ public sealed class ActorClientGeneratorTests
             .Where(static diagnostic => diagnostic.Id.StartsWith("ULA", StringComparison.Ordinal))
             .OrderBy(static diagnostic => diagnostic.Id, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static string GetGeneratedSource(string source)
+    {
+        SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "ActorClientGeneratorOutputTests",
+            [syntaxTree],
+            GetMetadataReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ActorClientGenerator());
+        GeneratorDriverRunResult result = driver.RunGenerators(compilation).GetRunResult();
+
+        return Assert.Single(result.Results)
+            .GeneratedSources
+            .Single(static generated => generated.HintName == "ULinkActorClientExtensions.g.cs")
+            .SourceText
+            .ToString();
     }
 
     private static IEnumerable<MetadataReference> GetMetadataReferences()

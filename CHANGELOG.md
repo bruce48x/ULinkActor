@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.4 — Unreleased
+## 0.3.5 — Unreleased
 
 ### Added
 
@@ -8,6 +8,7 @@
 - **Actor state machine**: `ActorState` enum (`Active`, `Draining`, `Dead`) exposed via `ActorHandle.GetState()` and `ActorSystem.GetActorState()`. Actors now have an explicit, queryable lifecycle.
 - **Message interceptor hooks**: `IActorMessageInterceptor` with `OnBeforeMessage` and `OnAfterMessage` callbacks, configured per-`ActorSystem` via `ActorSystemOptions.MessageInterceptor`. Enables message recording, replay, and custom diagnostics without modifying the runtime.
 - **Observer error diagnostics**: `ActorSystem.ObserverErrorPublished` reports failures from diagnostic event handlers and message interceptors without changing actor message execution.
+- **Actor call options**: `ActorCallOptions` gives `Call<T>` separate queue and response timeout budgets.
 - **Design philosophy documentation**: `docs/design-philosophy.md` documents the Skynet-influenced principles behind the runtime.
 
 ### Changed
@@ -17,6 +18,8 @@
 - **Message interceptor errors**: `IActorMessageInterceptor` exceptions are now reported through `ObserverErrorPublished` and no longer fail actor message dispatch.
 - **Stop flow**: Actor removal from the registry now happens *after* the mailbox drain completes, so `GetActorState()` correctly reports `Draining` during the drain window.
 - **Graceful stopping**: `IActorStopping<TMessage>` now runs as the final mailbox turn during explicit stop. The hook no longer runs concurrently with an in-flight message, and drain timeouts leave the actor in `Draining` until the stop sequence actually completes.
+- **Call timeout API** (breaking): `ActorRef<TMessage>.Call<TResponse>` now accepts `ActorCallOptions` instead of a single `TimeSpan`. Queue backpressure timeout and response timeout are handled independently.
+- **Call timeout diagnostics** (breaking): `ActorCallTimeout` now exposes `QueueTimeout`, `ResponseTimeout`, and `Elapsed` instead of a single `Timeout`.
 
 ### Removed
 

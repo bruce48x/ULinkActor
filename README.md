@@ -80,7 +80,11 @@ public sealed class RoomActor : IActor<RoomMessage>
     }
 }
 
-int count = await room.Ref.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
+ActorCallOptions callOptions = new(
+    QueueTimeout: TimeSpan.FromMilliseconds(50),
+    ResponseTimeout: TimeSpan.FromSeconds(1));
+
+int count = await room.Ref.Call<int>(new GetPlayerCount(), callOptions);
 ```
 
 ## Runtime Model
@@ -101,7 +105,9 @@ Bounded mailboxes apply backpressure. `Send` waits until capacity is available o
 
 `Call<T>` is request/response messaging. It is useful for querying actor state, requesting computed results, or waiting for actor-side work to complete.
 
-Call timeouts publish structured diagnostics with the caller actor, target actor, request type, timeout reason, and actor call chain when the call originated from another actor.
+Calls use `ActorCallOptions` so queue backpressure and actor response latency have separate budgets. `QueueTimeout` controls how long the caller waits for mailbox capacity. `ResponseTimeout` starts after the request is queued and controls how long the caller waits for `ctx.Respond(...)`.
+
+Call timeouts publish structured diagnostics with the caller actor, target actor, request type, queue timeout, response timeout, elapsed time, timeout reason, and actor call chain when the call originated from another actor.
 
 ### Timers
 
