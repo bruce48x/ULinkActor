@@ -1,109 +1,24 @@
 # Changelog
 
-## 0.5.15
-
-### Changed
-
-- Refactored actor call queueing and queue-timeout diagnostics into an internal call queue component.
-
-## 0.5.14
-
-### Changed
-
-- Refactored actor call response waiting and response type conversion into an internal response waiter.
-
-## 0.5.13
-
-### Changed
-
-- Refactored actor call queueing, response waiting, timeout diagnostics, and response casting into an internal call dispatcher.
-
-### Fixed
-
-- Ensured actor call failures are observed after after-interceptor callbacks have completed.
-
-## 0.5.12
-
-### Changed
-
-- Refactored actor timer creation into an internal timer scheduler while preserving context timer APIs.
-
-## 0.5.11
-
-### Changed
-
-- Refactored actor response handling into an internal response slot while preserving context response behavior.
-
-## 0.5.10
-
-### Changed
-
-- Refactored per-actor stop sequencing into an internal stop sequence component while preserving drain, timeout, and stopping hook behavior.
-
-## 0.5.9
-
-### Changed
-
-- Refactored per-message actor turn dispatch into an internal turn runner while preserving tracing, interceptor, and slow-message behavior.
-
-## 0.5.8
-
-### Fixed
-
-- Prevented timers scheduled during actor stopping from surviving stop cleanup and publishing post-stop dead letters.
-
-## 0.5.7
-
-### Changed
-
-- Refactored actor timer ownership into an internal timer set component while preserving timer disposal behavior during stop.
-
-## 0.5.6
-
-### Changed
-
-- Refactored actor lookup, named actor type validation, state, and mailbox metric reads into an internal lookup component.
-
-## 0.5.5
-
-### Changed
-
-- Refactored actor stop and disposal cleanup into an internal stopper component while preserving drain and registry-removal behavior.
-
-## 0.5.4
-
-### Changed
-
-- Refactored actor spawning and startup rollback into an internal spawner component while preserving public spawn behavior.
-
-## 0.5.3
-
-### Changed
-
-- Refactored actor send and call delivery into an internal dispatcher component while preserving message, timeout, and dead-letter behavior.
-
-## 0.5.2
-
-### Changed
-
-- Refactored actor and named actor registration into an internal registry component while preserving runtime lookup and lifecycle behavior.
-
-## 0.5.1
-
-### Changed
-
-- Refactored actor system diagnostics publishing into an internal component while preserving public diagnostic events and metric behavior.
-
-## 0.5.0
+## 0.5.0 - 0.5.16
 
 ### Changed
 
 - **Actor system lifecycle API** (breaking): `ActorSystem` is now async-only. Use `await using ActorSystem system = new();` and `await system.SpawnAsync<TMessage>(...)`.
 - **Generated typed spawn extensions** (breaking): generated spawn helpers now use the `SpawnXxxAsync(...)` naming shape and return `ValueTask<ActorHandle<TMessage>>`.
+- **ActorSystem internals**: diagnostics publishing, actor registration, message delivery, spawning, stopping, lookup, and call handling were separated into focused internal components.
+- **ActorCell internals**: per-message dispatch, stop sequencing, timer ownership, timer creation, and response handling were separated into focused internal components.
+- **Actor call pipeline**: call queueing, queue-timeout diagnostics, response waiting, response-timeout diagnostics, and response type conversion were consolidated into dedicated internal call components.
+- **Runtime internal layout**: actor runtime internals were organized into responsibility-based directories for dispatch, lifecycle, registry, diagnostics, and timer ownership.
 
 ### Removed
 
 - **Sync-over-async lifecycle paths** (breaking): removed synchronous `ActorSystem.Spawn(...)` and `ActorSystem.Dispose()` so startup hooks, mailbox drain, and disposal remain explicitly asynchronous.
+
+### Fixed
+
+- Prevented timers scheduled during actor stopping from surviving stop cleanup and publishing post-stop dead letters.
+- Ensured actor call failures are observed after after-interceptor callbacks have completed.
 
 ## 0.4.0
 
