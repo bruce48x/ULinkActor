@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.9
+
+### Changed
+
+- Refactored per-message actor turn dispatch into an internal turn runner while preserving tracing, interceptor, and slow-message behavior.
+
 ## 0.5.8
 
 ### Fixed
