@@ -13,6 +13,7 @@ public sealed class ActorSystem : IAsyncDisposable
     private readonly ActorMessageDispatcher dispatcher;
     private readonly ActorSpawner spawner;
     private readonly ActorStopper stopper;
+    private readonly ActorLookup lookup;
     private readonly ActorSystemOptions options;
     private bool disposed;
 
@@ -77,6 +78,7 @@ public sealed class ActorSystem : IAsyncDisposable
         dispatcher = new ActorMessageDispatcher(registry, diagnostics, () => CurrentCallContext);
         spawner = new ActorSpawner(this, registry, options);
         stopper = new ActorStopper(registry);
+        lookup = new ActorLookup(this, registry);
     }
 
     public ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor)
@@ -228,20 +230,14 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        ActorCell cell = GetActor(target);
-        return cell.GetMailboxMetrics();
+        return lookup.GetMailboxMetrics(target);
     }
 
     public ActorState GetActorState(ActorId target)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        if (!registry.TryGet(target, out ActorCell? cell))
-        {
-            return ActorState.Dead;
-        }
-
-        return cell.State;
+        return lookup.GetActorState(target);
     }
 
     internal MailboxMetrics GetMailboxMetrics(ActorRef actorRef)
@@ -255,14 +251,7 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ValidateActorName(name);
 
-        if (registry.TryGetNamed(name, out ActorId id))
-        {
-            actorRef = new ActorRef(this, id);
-            return true;
-        }
-
-        actorRef = null;
-        return false;
+        return lookup.TryGetActor(name, out actorRef);
     }
 
     public bool TryGetActor<TMessage>(string name, out ActorRef<TMessage>? actorRef)
@@ -289,37 +278,14 @@ public sealed class ActorSystem : IAsyncDisposable
 
     internal bool TryGetActor(ActorId target, out ActorCell? cell)
     {
-        return registry.TryGet(target, out cell);
-    }
-
-    private ActorCell GetActor(ActorId target)
-    {
-        if (!registry.TryGet(target, out ActorCell? cell))
-        {
-            throw new InvalidOperationException($"Actor {target} does not exist.");
-        }
-
-        return cell;
+        return lookup.TryGetActor(target, out cell);
     }
 
     private bool TryGetActor(string name, Type messageType, out ActorRef? actorRef)
     {
         ValidateActorName(name);
 
-        if (registry.TryGetNamed(name, out ActorId id, out ActorCell? cell))
-        {
-            if (cell.MessageType != messageType)
-            {
-                throw new InvalidOperationException(
-                    $"Actor name '{name}' was registered for message type {cell.MessageType.FullName}, not {messageType.FullName}.");
-            }
-
-            actorRef = new ActorRef(this, id);
-            return true;
-        }
-
-        actorRef = null;
-        return false;
+        return lookup.TryGetActor(name, messageType, out actorRef);
     }
 
     private static void ValidateActorName(string name)

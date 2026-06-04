@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6
+
+### Changed
+
+- Refactored actor lookup, named actor type validation, state, and mailbox metric reads into an internal lookup component.
+
 ## 0.5.5
 
 ### Changed
