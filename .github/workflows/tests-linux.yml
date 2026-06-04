@@ -44,4 +44,25 @@ jobs:
           done
 
       - name: Test ULinkActor
-        run: dotnet test "${{ github.workspace }}/tests/ULinkActor.Tests/ULinkActor.Tests.csproj" --no-restore -m:1 /nr:false /p:UseSharedCompilation=false
+        timeout-minutes: 5
+        run: >
+          dotnet test "${{ github.workspace }}/tests/ULinkActor.Tests/ULinkActor.Tests.csproj"
+          --no-restore
+          -m:1
+          /nr:false
+          /p:UseSharedCompilation=false
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+          --diag TestResults/vstest-diag.log
+          --blame
+          --blame-hang
+          --blame-hang-timeout 2m
+          --blame-hang-dump-type mini
+
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-diagnostics
+          path: TestResults
+          if-no-files-found: ignore
