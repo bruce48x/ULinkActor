@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7
+
+### Changed
+
+- Refactored actor timer ownership into an internal timer set component while preserving timer disposal behavior during stop.
+
 ## 0.5.6
 
 ### Changed

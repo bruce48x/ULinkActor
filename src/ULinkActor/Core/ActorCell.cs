@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using ULinkActor.Abstractions;
@@ -11,7 +10,7 @@ namespace ULinkActor.Core;
 internal sealed class ActorCell
 {
     private readonly IActor actor;
-    private readonly ConcurrentBag<IDisposable> timers = new();
+    private readonly ActorTimerSet timers = new();
     private readonly ActorSystem system;
     private readonly TimeSpan? slowMessageThreshold;
     private readonly object stopGate = new();
@@ -74,17 +73,14 @@ internal sealed class ActorCell
         await actor.OnStarted(context).ConfigureAwait(false);
     }
 
-    public void AddTimer(IDisposable timer)
+    internal void AddTimer(IDisposable timer)
     {
         timers.Add(timer);
     }
 
-    public void DisposeTimers()
+    private void DisposeTimers()
     {
-        foreach (IDisposable timer in timers)
-        {
-            timer.Dispose();
-        }
+        timers.DisposeAll();
     }
 
     public void Complete()
