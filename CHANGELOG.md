@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.15
+
+### Changed
+
+- Refactored actor call queueing and queue-timeout diagnostics into an internal call queue component.
+
 ## 0.5.14
 
 ### Changed
