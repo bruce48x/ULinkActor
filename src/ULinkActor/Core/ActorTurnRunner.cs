@@ -73,7 +73,6 @@ internal sealed class ActorTurnRunner
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.SetTag("exception.type", ex.GetType().FullName);
             activity?.SetTag("exception.message", ex.Message);
-            envelope.Response?.TrySetException(ex);
         }
         finally
         {
@@ -102,6 +101,11 @@ internal sealed class ActorTurnRunner
             if (interceptor is not null)
             {
                 await RunAfterInterceptor(interceptor, envelope, messageType, error).ConfigureAwait(false);
+            }
+
+            if (error is not null)
+            {
+                envelope.Response?.TrySetException(error);
             }
         }
     }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.13
+
+### Changed
+
+- Refactored actor call queueing, response waiting, timeout diagnostics, and response casting into an internal call dispatcher.
+
+### Fixed
+
+- Ensured actor call failures are observed after after-interceptor callbacks have completed.
+
 ## 0.5.12
 
 ### Changed
