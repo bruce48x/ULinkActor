@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.12
+
+### Changed
+
+- Refactored actor timer creation into an internal timer scheduler while preserving context timer APIs.
+
 ## 0.5.11
 
 ### Changed

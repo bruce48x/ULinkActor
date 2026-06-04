@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using ULinkActor.Core;
 using ULinkActor.Timers;
 
@@ -6,14 +5,14 @@ namespace ULinkActor.Messaging;
 
 internal sealed class ActorContextCore
 {
-    private readonly ActorCell cell;
     private readonly ActorResponseSlot responseSlot;
+    private readonly ActorTimerScheduler timerScheduler;
 
     internal ActorContextCore(ActorRef self, ActorCell cell, Envelope envelope)
     {
         Self = self;
-        this.cell = cell;
         responseSlot = new ActorResponseSlot(envelope.Response);
+        timerScheduler = new ActorTimerScheduler(self, cell);
     }
 
     internal ActorRef Self { get; }
@@ -34,16 +33,13 @@ internal sealed class ActorContextCore
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        return ScheduleRepeated(message, dueTime, Timeout.InfiniteTimeSpan);
+        return timerScheduler.ScheduleOnce(message, dueTime);
     }
 
     public IDisposable ScheduleRepeated(object message, TimeSpan dueTime, TimeSpan period)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        ActorTimer timer = new(Self, message, dueTime, period, Activity.Current?.Context ?? default);
-        cell.AddTimer(timer);
-        timer.Start();
-        return timer;
+        return timerScheduler.ScheduleRepeated(message, dueTime, period);
     }
 }
