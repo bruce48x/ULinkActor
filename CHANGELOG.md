@@ -1,20 +1,23 @@
 # Changelog
 
-## 0.3.2 — Unreleased
+## 0.3.3 — Unreleased
 
 ### Added
 
-- **Actor state machine**: `ActorState` enum (`Active`, `Draining`, `Dead`) exposed via `ActorRef.GetState()` and `ActorSystem.GetActorState()`. Actors now have an explicit, queryable lifecycle.
+- **Actor handle**: `ActorHandle<TMessage>` separates owner/admin operations from message-only `ActorRef<TMessage>`.
+- **Actor state machine**: `ActorState` enum (`Active`, `Draining`, `Dead`) exposed via `ActorHandle.GetState()` and `ActorSystem.GetActorState()`. Actors now have an explicit, queryable lifecycle.
 - **Message interceptor hooks**: `IActorMessageInterceptor` with `OnBeforeMessage` and `OnAfterMessage` callbacks, configured per-`ActorSystem` via `ActorSystemOptions.MessageInterceptor`. Enables message recording, replay, and custom diagnostics without modifying the runtime.
 - **Design philosophy documentation**: `docs/design-philosophy.md` documents the Skynet-influenced principles behind the runtime.
 
 ### Changed
 
+- **Spawn API** (breaking): `ActorSystem.Spawn(...)` and generated typed spawn extensions now return `ActorHandle<TMessage>`. Use `handle.Ref` when passing a message-only actor reference to other code.
 - **Stop flow**: Actor removal from the registry now happens *after* the mailbox drain completes, so `GetActorState()` correctly reports `Draining` during the drain window.
 - **Graceful stopping**: `IActorStopping<TMessage>` now runs as the final mailbox turn during explicit stop. The hook no longer runs concurrently with an in-flight message, and drain timeouts leave the actor in `Draining` until the stop sequence actually completes.
 
 ### Removed
 
+- **ActorRef management APIs** (breaking): Removed `Stop(...)`, `GetState()`, and `GetMailboxMetrics()` from `ActorRef<TMessage>`. Keep the `ActorHandle<TMessage>` returned by spawn for lifecycle and diagnostics.
 - **`ActorSystemOptions.ExecutionTimeout`** (breaking): Removed preemptive message execution timeout because timing out a handler with `WaitAsync` allowed the mailbox to advance while the original actor turn could still be running. Slow or stuck actor turns should be diagnosed through slow-message telemetry and handled by application-level shutdown or process supervision.
 - **`ActorCallTimeoutReason.CircularWait`** (breaking): Circular actor call chains now throw `InvalidOperationException` synchronously before any message is queued, rather than waiting for a timeout. Circular calls are a design error, not a runtime condition.
 

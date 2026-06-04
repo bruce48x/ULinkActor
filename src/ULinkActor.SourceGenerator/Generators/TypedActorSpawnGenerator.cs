@@ -101,7 +101,7 @@ public sealed class TypedActorSpawnGenerator : IIncrementalGenerator
             string messageTypeName = messageType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string methodName = "Spawn" + SanitizeIdentifier(actorType.Name);
 
-            source.AppendLine($"    public static global::ULinkActor.ActorRef<{messageTypeName}> {methodName}(");
+            source.AppendLine($"    public static global::ULinkActor.ActorHandle<{messageTypeName}> {methodName}(");
             source.AppendLine("        this global::ULinkActor.ActorSystem system,");
             source.AppendLine($"        {actorTypeName} actor,");
             source.AppendLine("        global::ULinkActor.ActorSpawnOptions? options = null)");
@@ -112,7 +112,7 @@ public sealed class TypedActorSpawnGenerator : IIncrementalGenerator
             source.AppendLine("    }");
             source.AppendLine();
 
-            source.AppendLine($"    public static global::ULinkActor.ActorRef<{messageTypeName}> {methodName}(");
+            source.AppendLine($"    public static global::ULinkActor.ActorHandle<{messageTypeName}> {methodName}(");
             source.AppendLine("        this global::ULinkActor.ActorSystem system,");
             source.AppendLine("        string name,");
             source.AppendLine($"        {actorTypeName} actor,");

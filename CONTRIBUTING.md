@@ -140,7 +140,7 @@ Source generation is part of the intended developer experience. It should remove
 The runtime model remains:
 
 ```text
-typed generated API -> ActorRef<TMessage> / ActorSystem -> mailbox -> actor handler
+typed generated API -> ActorHandle<TMessage> / ActorRef<TMessage> / ActorSystem -> mailbox -> actor handler
 ```
 
 Generated code should call normal public runtime APIs such as `Spawn`, `Send`, and `Call<T>`. It must not depend on runtime method lookup, dynamic invocation, dynamic proxy libraries, or reflection-driven dispatch.

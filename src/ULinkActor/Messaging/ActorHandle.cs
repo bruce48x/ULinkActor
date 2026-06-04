@@ -1,0 +1,47 @@
+using ULinkActor.Messaging;
+
+namespace ULinkActor;
+
+public sealed class ActorHandle<TMessage>
+{
+    private readonly ActorRef inner;
+
+    internal ActorHandle(ActorRef inner)
+    {
+        this.inner = inner;
+        Ref = new ActorRef<TMessage>(inner);
+    }
+
+    public ActorId Id => inner.Id;
+
+    public ActorRef<TMessage> Ref { get; }
+
+    public static implicit operator ActorRef<TMessage>(ActorHandle<TMessage> handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        return handle.Ref;
+    }
+
+    public ValueTask Stop()
+    {
+        return inner.Stop();
+    }
+
+    public ValueTask<ActorStopResult> Stop(TimeSpan drainTimeout)
+    {
+        return inner.Stop(drainTimeout);
+    }
+
+    public MailboxMetrics GetMailboxMetrics()
+    {
+        return inner.GetMailboxMetrics();
+    }
+
+    public ActorState GetState()
+    {
+        return inner.GetState();
+    }
+
+    public override string ToString() => inner.ToString();
+}

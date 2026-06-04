@@ -50,9 +50,9 @@ Start the actor system and send a message:
 ```csharp
 using ActorSystem system = new();
 
-ActorRef<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
+ActorHandle<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
 
-await room.Send(new JoinRoom(10001));
+await room.Ref.Send(new JoinRoom(10001));
 ```
 
 Use `Call<T>` when a response is required:
@@ -80,14 +80,14 @@ public sealed class RoomActor : IActor<RoomMessage>
     }
 }
 
-int count = await room.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
+int count = await room.Ref.Call<int>(new GetPlayerCount(), TimeSpan.FromSeconds(1));
 ```
 
 ## Runtime Model
 
 ### Typed Actors
 
-ULinkActor's public actor API is typed-only. Actors implement `IActor<TMessage>`, callers hold `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type.
+ULinkActor's public actor API is typed-only. Actors implement `IActor<TMessage>`, callers hold `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type. `ActorRef<TMessage>` is message-only; lifecycle and diagnostics stay on the `ActorHandle<TMessage>` returned by spawn or on `ActorSystem`.
 
 Actors that handle multiple commands should use a shared message base type or interface, such as `RoomMessage`, and derive individual command records from it.
 

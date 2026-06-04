@@ -37,25 +37,5 @@ public sealed class ActorRef<TMessage>
         return inner.Call<TResponse>(request, timeout, cancellationToken);
     }
 
-    public ValueTask Stop()
-    {
-        return inner.Stop();
-    }
-
-    public ValueTask<ActorStopResult> Stop(TimeSpan drainTimeout)
-    {
-        return inner.Stop(drainTimeout);
-    }
-
-    public MailboxMetrics GetMailboxMetrics()
-    {
-        return inner.GetMailboxMetrics();
-    }
-
-    public ActorState GetState()
-    {
-        return inner.GetState();
-    }
-
     public override string ToString() => inner.ToString();
 }

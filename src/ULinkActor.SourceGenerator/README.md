@@ -56,15 +56,15 @@ using ULinkActor;
 
 using ActorSystem system = new();
 
-ActorRef<RoomMessage> room = system.SpawnRoomActor(new RoomActor());
+ActorHandle<RoomMessage> room = system.SpawnRoomActor(new RoomActor());
 
-await room.Send(new JoinRoom(10001));
+await room.Ref.Send(new JoinRoom(10001));
 ```
 
 You can also register the actor by name:
 
 ```csharp
-ActorRef<RoomMessage> room = system.SpawnRoomActor("room-1", new RoomActor());
+ActorHandle<RoomMessage> room = system.SpawnRoomActor("room-1", new RoomActor());
 ```
 
 ## Generated Method Shape
@@ -72,9 +72,9 @@ ActorRef<RoomMessage> room = system.SpawnRoomActor("room-1", new RoomActor());
 For a public actor named `RoomActor` that implements `IActor<RoomMessage>`, the generator emits:
 
 ```csharp
-ActorRef<RoomMessage> SpawnRoomActor(this ActorSystem system, RoomActor actor, ActorSpawnOptions? options = null);
+ActorHandle<RoomMessage> SpawnRoomActor(this ActorSystem system, RoomActor actor, ActorSpawnOptions? options = null);
 
-ActorRef<RoomMessage> SpawnRoomActor(this ActorSystem system, string name, RoomActor actor, ActorSpawnOptions? options = null);
+ActorHandle<RoomMessage> SpawnRoomActor(this ActorSystem system, string name, RoomActor actor, ActorSpawnOptions? options = null);
 ```
 
 ## Generation Rules
@@ -103,8 +103,8 @@ public interface IRoomActorClient
 The generator emits a public client message interface, public request records that implement it, and an `ActorRef<TMessage>` extension method:
 
 ```csharp
-ActorRef<RoomActorClientMessage> roomActor = system.Spawn<RoomActorClientMessage>(new RoomActor());
-IRoomActorClient room = roomActor.AsRoomActorClient(TimeSpan.FromSeconds(1));
+ActorHandle<RoomActorClientMessage> roomActor = system.Spawn<RoomActorClientMessage>(new RoomActor());
+IRoomActorClient room = roomActor.Ref.AsRoomActorClient(TimeSpan.FromSeconds(1));
 
 await room.Join(10001);
 int count = await room.GetPlayerCount();

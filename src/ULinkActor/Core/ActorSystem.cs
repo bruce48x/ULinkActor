@@ -51,17 +51,17 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         this.options = options;
     }
 
-    public ActorRef<TMessage> Spawn<TMessage>(IActor<TMessage> actor)
+    public ActorHandle<TMessage> Spawn<TMessage>(IActor<TMessage> actor)
     {
         return Spawn(actor, null);
     }
 
-    public ActorRef<TMessage> Spawn<TMessage>(string name, IActor<TMessage> actor)
+    public ActorHandle<TMessage> Spawn<TMessage>(string name, IActor<TMessage> actor)
     {
         return Spawn(name, actor, null);
     }
 
-    public ActorRef<TMessage> Spawn<TMessage>(
+    public ActorHandle<TMessage> Spawn<TMessage>(
         string name,
         IActor<TMessage> actor,
         ActorSpawnOptions? spawnOptions)
@@ -70,15 +70,15 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(actor);
 
         ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, name);
-        return new ActorRef<TMessage>(actorRef);
+        return new ActorHandle<TMessage>(actorRef);
     }
 
-    public ActorRef<TMessage> Spawn<TMessage>(IActor<TMessage> actor, ActorSpawnOptions? spawnOptions)
+    public ActorHandle<TMessage> Spawn<TMessage>(IActor<TMessage> actor, ActorSpawnOptions? spawnOptions)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
         ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, null);
-        return new ActorRef<TMessage>(actorRef);
+        return new ActorHandle<TMessage>(actorRef);
     }
 
     private ActorRef SpawnCore(IActor actor, Type messageType, ActorSpawnOptions? spawnOptions, string? name)
