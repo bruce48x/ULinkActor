@@ -46,6 +46,7 @@ internal sealed class ActorContextCore
 
         ActorTimer timer = new(Self, message, dueTime, period, Activity.Current?.Context ?? default);
         cell.AddTimer(timer);
+        timer.Start();
         return timer;
     }
 }

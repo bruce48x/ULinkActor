@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.8
+
+### Fixed
+
+- Prevented timers scheduled during actor stopping from surviving stop cleanup and publishing post-stop dead letters.
+
 ## 0.5.7
 
 ### Changed

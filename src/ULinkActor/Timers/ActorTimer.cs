@@ -8,7 +8,11 @@ internal sealed class ActorTimer : IDisposable
     private readonly ActorRef target;
     private readonly object message;
     private readonly ActivityContext parentActivityContext;
+    private readonly TimeSpan dueTime;
+    private readonly TimeSpan period;
     private readonly Timer timer;
+    private readonly object gate = new();
+    private bool disposed;
 
     internal ActorTimer(
         ActorRef target,
@@ -20,12 +24,36 @@ internal sealed class ActorTimer : IDisposable
         this.target = target;
         this.message = message;
         this.parentActivityContext = parentActivityContext;
-        timer = new Timer(OnTick, null, dueTime, period);
+        this.dueTime = dueTime;
+        this.period = period;
+        timer = new Timer(OnTick);
+    }
+
+    internal void Start()
+    {
+        lock (gate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            timer.Change(dueTime, period);
+        }
     }
 
     public void Dispose()
     {
-        timer.Dispose();
+        lock (gate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            timer.Dispose();
+        }
     }
 
     private void OnTick(object? state)

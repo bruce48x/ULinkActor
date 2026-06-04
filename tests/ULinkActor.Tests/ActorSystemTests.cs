@@ -1093,6 +1093,20 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public async Task Stop_disposes_timers_scheduled_by_stopping_hook()
+    {
+        await using ActorSystem system = new();
+        List<DeadLetter> deadLetters = new();
+        system.DeadLetterPublished += deadLetters.Add;
+        ActorHandle<object> actorHandle = await system.SpawnAsync(new StoppingTimerActor());
+
+        await actorHandle.Stop();
+        await Task.Delay(80);
+
+        Assert.Empty(deadLetters);
+    }
+
+    [Fact]
     public async Task Background_work_completion_is_delivered_through_actor_mailbox()
     {
         await using ActorSystem system = new();
@@ -1678,6 +1692,20 @@ public sealed class ActorSystemTests
         public ValueTask OnStopping(ActorContext<object> ctx)
         {
             throw new InvalidOperationException("stop failed");
+        }
+    }
+
+    private sealed class StoppingTimerActor : IActor<object>, IActorStopping<object>
+    {
+        public ValueTask OnMessage(ActorContext<object> ctx, object message)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnStopping(ActorContext<object> ctx)
+        {
+            ctx.ScheduleRepeated(new Tick(), TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(10));
+            return ValueTask.CompletedTask;
         }
     }
 
