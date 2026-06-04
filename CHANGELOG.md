@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+### Changed
+
+- Refactored actor send and call delivery into an internal dispatcher component while preserving message, timeout, and dead-letter behavior.
+
 ## 0.5.2
 
 ### Changed
