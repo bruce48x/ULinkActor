@@ -233,7 +233,7 @@ internal sealed class ActorCell
                         }));
                     activity?.SetTag("ulinkactor.slow_message", true);
                     activity?.SetTag("ulinkactor.slow_message.elapsed_ms", elapsed.TotalMilliseconds);
-                    system.PublishSlowMessage(Self.Id, envelope.Message, elapsed);
+                    system.Diagnostics.PublishSlowMessage(Self.Id, envelope.Message, elapsed);
                 }
             }
 
@@ -255,7 +255,7 @@ internal sealed class ActorCell
         }
         catch (Exception ex)
         {
-            system.PublishObserverError(
+            system.Diagnostics.PublishObserverError(
                 ActorObserverErrorSource.MessageInterceptorBefore,
                 Self.Id,
                 messageType,
@@ -275,7 +275,7 @@ internal sealed class ActorCell
         }
         catch (Exception ex)
         {
-            system.PublishObserverError(
+            system.Diagnostics.PublishObserverError(
                 ActorObserverErrorSource.MessageInterceptorAfter,
                 Self.Id,
                 messageType,

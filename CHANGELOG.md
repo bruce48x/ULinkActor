@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### Changed
+
+- Refactored actor system diagnostics publishing into an internal component while preserving public diagnostic events and metric behavior.
+
 ## 0.5.0
 
 ### Changed

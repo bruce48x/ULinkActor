@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.5.0" />
+  <PackageReference Include="ULinkActor" Version="0.5.1" />
 </ItemGroup>
 ```
 

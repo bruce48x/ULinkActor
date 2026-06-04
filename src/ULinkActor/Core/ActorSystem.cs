@@ -11,17 +11,34 @@ public sealed class ActorSystem : IAsyncDisposable
     private readonly AsyncLocal<ActorCallContext?> currentCallContext = new();
     private readonly ConcurrentDictionary<ActorId, ActorCell> actors = new();
     private readonly ConcurrentDictionary<string, ActorId> names = new(StringComparer.Ordinal);
+    private readonly ActorSystemDiagnosticsPublisher diagnostics = new();
     private readonly ActorSystemOptions options;
     private long nextActorId;
     private bool disposed;
 
-    public event Action<DeadLetter>? DeadLetterPublished;
+    public event Action<DeadLetter>? DeadLetterPublished
+    {
+        add => diagnostics.DeadLetterPublished += value;
+        remove => diagnostics.DeadLetterPublished -= value;
+    }
 
-    public event Action<SlowMessage>? SlowMessageDetected;
+    public event Action<SlowMessage>? SlowMessageDetected
+    {
+        add => diagnostics.SlowMessageDetected += value;
+        remove => diagnostics.SlowMessageDetected -= value;
+    }
 
-    public event Action<ActorCallTimeout>? CallTimedOut;
+    public event Action<ActorCallTimeout>? CallTimedOut
+    {
+        add => diagnostics.CallTimedOut += value;
+        remove => diagnostics.CallTimedOut -= value;
+    }
 
-    public event Action<ActorObserverError>? ObserverErrorPublished;
+    public event Action<ActorObserverError>? ObserverErrorPublished
+    {
+        add => diagnostics.ObserverErrorPublished += value;
+        remove => diagnostics.ObserverErrorPublished -= value;
+    }
 
     internal ActorCallContext? CurrentCallContext
     {
@@ -34,6 +51,8 @@ public sealed class ActorSystem : IAsyncDisposable
     }
 
     internal IActorMessageInterceptor? MessageInterceptor => options.MessageInterceptor;
+
+    internal ActorSystemDiagnosticsPublisher Diagnostics => diagnostics;
 
     public ActorSystem()
         : this(new ActorSystemOptions())
@@ -173,7 +192,7 @@ public sealed class ActorSystem : IAsyncDisposable
         catch (InvalidOperationException)
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "completed"));
-            PublishDeadLetter(target, message, "Actor mailbox is completed.");
+            diagnostics.PublishDeadLetter(target, message, "Actor mailbox is completed.");
             throw;
         }
     }
@@ -194,14 +213,14 @@ public sealed class ActorSystem : IAsyncDisposable
         if (!actors.TryGetValue(target, out ActorCell? cell))
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "unavailable"));
-            PublishDeadLetter(target, message, "Actor does not exist.");
+            diagnostics.PublishDeadLetter(target, message, "Actor does not exist.");
             return ActorSendResult.ActorUnavailable;
         }
 
         if (cell.IsStopping)
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "stopping"));
-            PublishDeadLetter(target, message, "Actor is stopping.");
+            diagnostics.PublishDeadLetter(target, message, "Actor is stopping.");
             return ActorSendResult.ActorUnavailable;
         }
 
@@ -220,7 +239,7 @@ public sealed class ActorSystem : IAsyncDisposable
         ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>(
             "reason",
             cell.Completion.IsCompleted ? "completed" : "full"));
-        PublishDeadLetter(target, message, reason);
+        diagnostics.PublishDeadLetter(target, message, reason);
 
         return cell.Completion.IsCompleted
             ? ActorSendResult.ActorUnavailable
@@ -279,11 +298,11 @@ public sealed class ActorSystem : IAsyncDisposable
                 if (cell.Completion.IsCompleted)
                 {
                     ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "completed"));
-                    PublishDeadLetter(target, request, "Actor mailbox is completed.");
+                    diagnostics.PublishDeadLetter(target, request, "Actor mailbox is completed.");
                     throw new InvalidOperationException($"Actor {target} mailbox is completed.");
                 }
 
-                ActorCallTimeout timeoutDiagnostic = PublishCallTimeout(
+                ActorCallTimeout timeoutDiagnostic = diagnostics.PublishCallTimeout(
                     caller?.ActorId,
                     target,
                     request,
@@ -291,7 +310,7 @@ public sealed class ActorSystem : IAsyncDisposable
                     Stopwatch.GetElapsedTime(startedAt),
                     ActorCallTimeoutReason.QueueTimeout,
                     callChain);
-                TimeoutException exception = CreateCallTimeoutException(
+                TimeoutException exception = diagnostics.CreateCallTimeoutException(
                     timeoutDiagnostic,
                     "The actor call timed out before it could be queued.");
                 response.TrySetException(exception);
@@ -312,14 +331,14 @@ public sealed class ActorSystem : IAsyncDisposable
             catch (InvalidOperationException)
             {
                 ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "completed"));
-                PublishDeadLetter(target, request, "Actor mailbox is completed.");
+                diagnostics.PublishDeadLetter(target, request, "Actor mailbox is completed.");
                 throw;
             }
             catch (OperationCanceledException) when (
                 queueTimeoutCts.IsCancellationRequested &&
                 !cancellationToken.IsCancellationRequested)
             {
-                ActorCallTimeout timeoutDiagnostic = PublishCallTimeout(
+                ActorCallTimeout timeoutDiagnostic = diagnostics.PublishCallTimeout(
                     caller?.ActorId,
                     target,
                     request,
@@ -327,7 +346,7 @@ public sealed class ActorSystem : IAsyncDisposable
                     Stopwatch.GetElapsedTime(startedAt),
                     ActorCallTimeoutReason.QueueTimeout,
                     callChain);
-                TimeoutException exception = CreateCallTimeoutException(
+                TimeoutException exception = diagnostics.CreateCallTimeoutException(
                     timeoutDiagnostic,
                     "The actor call timed out before it could be queued.");
                 response.TrySetException(exception);
@@ -350,7 +369,7 @@ public sealed class ActorSystem : IAsyncDisposable
             responseTimeoutCts.IsCancellationRequested &&
             !cancellationToken.IsCancellationRequested)
         {
-            ActorCallTimeout timeoutDiagnostic = PublishCallTimeout(
+            ActorCallTimeout timeoutDiagnostic = diagnostics.PublishCallTimeout(
                 caller?.ActorId,
                 target,
                 request,
@@ -358,7 +377,7 @@ public sealed class ActorSystem : IAsyncDisposable
                 Stopwatch.GetElapsedTime(startedAt),
                 ActorCallTimeoutReason.ResponseTimeout,
                 callChain);
-            TimeoutException exception = CreateCallTimeoutException(timeoutDiagnostic, "The actor call timed out.");
+            TimeoutException exception = diagnostics.CreateCallTimeoutException(timeoutDiagnostic, "The actor call timed out.");
             response.TrySetException(exception);
             throw exception;
         }
@@ -585,14 +604,14 @@ public sealed class ActorSystem : IAsyncDisposable
         if (!actors.TryGetValue(target, out ActorCell? cell))
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "unavailable"));
-            PublishDeadLetter(target, message, "Actor does not exist.");
+            diagnostics.PublishDeadLetter(target, message, "Actor does not exist.");
             throw new InvalidOperationException($"Actor {target} does not exist.");
         }
 
         if (cell.IsStopping)
         {
             ULinkActorDiagnostics.MessageRejectedCounter.Add(1, new KeyValuePair<string, object?>("reason", "stopping"));
-            PublishDeadLetter(target, message, "Actor is stopping.");
+            diagnostics.PublishDeadLetter(target, message, "Actor is stopping.");
             throw new InvalidOperationException($"Actor {target} is stopping.");
         }
 
@@ -634,178 +653,6 @@ public sealed class ActorSystem : IAsyncDisposable
     private static ActivityContext GetCurrentActivityContext()
     {
         return Activity.Current?.Context ?? default;
-    }
-
-    private void PublishDeadLetter(ActorId target, object message, string reason)
-    {
-        ULinkActorDiagnostics.DeadLetterCounter.Add(1, new KeyValuePair<string, object?>(
-            "reason",
-            GetDeadLetterMetricReason(reason)));
-
-        Action<DeadLetter>? handlers = DeadLetterPublished;
-
-        if (handlers is null)
-        {
-            return;
-        }
-
-        string messageType = GetMessageType(message);
-        DeadLetter deadLetter = new(target, messageType, reason);
-
-        foreach (Action<DeadLetter> handler in handlers.GetInvocationList().Cast<Action<DeadLetter>>())
-        {
-            try
-            {
-                handler(deadLetter);
-            }
-            catch (Exception ex)
-            {
-                PublishObserverError(ActorObserverErrorSource.DeadLetterHandler, target, messageType, ex);
-            }
-        }
-    }
-
-    internal void PublishSlowMessage(ActorId actorId, object message, TimeSpan elapsed)
-    {
-        Action<SlowMessage>? handlers = SlowMessageDetected;
-
-        if (handlers is null)
-        {
-            return;
-        }
-
-        string messageType = GetMessageType(message);
-        SlowMessage slowMessage = new(actorId, messageType, elapsed);
-
-        foreach (Action<SlowMessage> handler in handlers.GetInvocationList().Cast<Action<SlowMessage>>())
-        {
-            try
-            {
-                handler(slowMessage);
-            }
-            catch (Exception ex)
-            {
-                PublishObserverError(ActorObserverErrorSource.SlowMessageHandler, actorId, messageType, ex);
-            }
-        }
-    }
-
-    internal ActorCallTimeout CreateCallTimeout(
-        ActorId? caller,
-        ActorId target,
-        object request,
-        ActorCallOptions options,
-        TimeSpan elapsed,
-        ActorCallTimeoutReason reason,
-        IReadOnlyList<ActorId> callChain)
-    {
-        ActorId[] snapshot = callChain.ToArray();
-        return new ActorCallTimeout(
-            caller,
-            target,
-            GetMessageType(request),
-            options.QueueTimeout,
-            options.ResponseTimeout,
-            elapsed,
-            reason,
-            snapshot);
-    }
-
-    internal TimeoutException CreateCallTimeoutException(ActorCallTimeout timeout, string message)
-    {
-        string chain = timeout.CallChain.Count == 0
-            ? "<external>"
-            : string.Join(" -> ", timeout.CallChain.Select(id => id.Value));
-
-        return new TimeoutException(
-            $"{message} Target={timeout.Target.Value}; Caller={timeout.Caller?.Value.ToString() ?? "<external>"}; " +
-            $"Reason={timeout.Reason}; QueueTimeout={timeout.QueueTimeout}; ResponseTimeout={timeout.ResponseTimeout}; " +
-            $"Elapsed={timeout.Elapsed}; Chain={chain}.");
-    }
-
-    internal ActorCallTimeout PublishCallTimeout(
-        ActorId? caller,
-        ActorId target,
-        object request,
-        ActorCallOptions options,
-        TimeSpan elapsed,
-        ActorCallTimeoutReason reason,
-        IReadOnlyList<ActorId> callChain)
-    {
-        ActorCallTimeout timeout = CreateCallTimeout(caller, target, request, options, elapsed, reason, callChain);
-        PublishCallTimeout(timeout);
-        return timeout;
-    }
-
-    internal void PublishCallTimeout(ActorCallTimeout timeout)
-    {
-        ULinkActorDiagnostics.CallTimeoutCounter.Add(1, new KeyValuePair<string, object?>(
-            "reason",
-            timeout.Reason.ToString()));
-
-        Action<ActorCallTimeout>? handlers = CallTimedOut;
-
-        if (handlers is null)
-        {
-            return;
-        }
-
-        foreach (Action<ActorCallTimeout> handler in handlers.GetInvocationList().Cast<Action<ActorCallTimeout>>())
-        {
-            try
-            {
-                handler(timeout);
-            }
-            catch (Exception ex)
-            {
-                PublishObserverError(ActorObserverErrorSource.CallTimeoutHandler, timeout.Target, timeout.RequestType, ex);
-            }
-        }
-    }
-
-    internal void PublishObserverError(
-        ActorObserverErrorSource source,
-        ActorId? actorId,
-        string messageType,
-        Exception exception)
-    {
-        Action<ActorObserverError>? handlers = ObserverErrorPublished;
-
-        if (handlers is null)
-        {
-            return;
-        }
-
-        ActorObserverError observerError = new(source, actorId, messageType, exception);
-
-        foreach (Action<ActorObserverError> handler in handlers.GetInvocationList().Cast<Action<ActorObserverError>>())
-        {
-            try
-            {
-                handler(observerError);
-            }
-            catch
-            {
-                // Observer error handlers are the last diagnostic boundary.
-            }
-        }
-    }
-
-    private static string GetDeadLetterMetricReason(string reason)
-    {
-        return reason switch
-        {
-            "Actor does not exist." => "unavailable",
-            "Actor is stopping." => "stopping",
-            "Actor mailbox is completed." => "completed",
-            "Actor mailbox is full." => "full",
-            _ => "other"
-        };
-    }
-
-    internal static string GetMessageType(object message)
-    {
-        return message.GetType().FullName ?? message.GetType().Name;
     }
 
     public async ValueTask DisposeAsync()
