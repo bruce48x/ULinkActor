@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.5 — Unreleased
+## 0.3.6 — Unreleased
 
 ### Added
 
@@ -24,6 +24,7 @@
 ### Removed
 
 - **ActorRef management APIs** (breaking): Removed `Stop(...)`, `GetState()`, and `GetMailboxMetrics()` from `ActorRef<TMessage>`. Keep the `ActorHandle<TMessage>` returned by spawn for lifecycle and diagnostics.
+- **`ActorContext<TMessage>.System`** (breaking): Removed direct `ActorSystem` access from actor handlers. Pass dependencies explicitly through constructor parameters, actor refs, or messages instead of using actor context as a service locator.
 - **`ActorSystemOptions.ExecutionTimeout`** (breaking): Removed preemptive message execution timeout because timing out a handler with `WaitAsync` allowed the mailbox to advance while the original actor turn could still be running. Slow or stuck actor turns should be diagnosed through slow-message telemetry and handled by application-level shutdown or process supervision.
 - **`ActorCallTimeoutReason.CircularWait`** (breaking): Circular actor call chains now throw `InvalidOperationException` synchronously before any message is queued, rather than waiting for a timeout. Circular calls are a design error, not a runtime condition.
 

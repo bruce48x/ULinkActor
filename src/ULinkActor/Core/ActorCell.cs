@@ -70,7 +70,7 @@ internal sealed class ActorCell
 
     public async ValueTask StartAsync()
     {
-        ActorContextCore context = new(system, Self, this, new Envelope(ActorLifecycleMessage.Started));
+        ActorContextCore context = new(Self, this, new Envelope(ActorLifecycleMessage.Started));
         await actor.OnStarted(context).ConfigureAwait(false);
     }
 
@@ -167,7 +167,7 @@ internal sealed class ActorCell
 
     private async ValueTask Dispatch(Envelope envelope)
     {
-        ActorContextCore context = new(system, Self, this, envelope);
+        ActorContextCore context = new(Self, this, envelope);
         ActorCallContext? previousCallContext = system.CurrentCallContext;
         IReadOnlyList<ActorId> callChain = AppendCallChain(envelope.CallChain, Self.Id);
         long startedAt = slowMessageThreshold is null ? 0 : Stopwatch.GetTimestamp();

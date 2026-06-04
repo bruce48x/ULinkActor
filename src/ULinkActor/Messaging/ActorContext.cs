@@ -12,8 +12,6 @@ public sealed class ActorContext<TMessage>
         Self = new ActorRef<TMessage>(inner.Self);
     }
 
-    public ActorSystem System => inner.System;
-
     public ActorRef<TMessage> Self { get; }
 
     public bool HasPendingResponse => inner.HasPendingResponse;

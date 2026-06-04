@@ -9,15 +9,12 @@ internal sealed class ActorContextCore
     private readonly ActorCell cell;
     private readonly Envelope envelope;
 
-    internal ActorContextCore(ActorSystem system, ActorRef self, ActorCell cell, Envelope envelope)
+    internal ActorContextCore(ActorRef self, ActorCell cell, Envelope envelope)
     {
-        System = system;
         Self = self;
         this.cell = cell;
         this.envelope = envelope;
     }
-
-    internal ActorSystem System { get; }
 
     internal ActorRef Self { get; }
 

@@ -54,6 +54,7 @@ Each actor:
 - Owns its mailbox.
 - Communicates only through messages.
 - Processes messages sequentially.
+- Receives explicit dependencies through construction, actor refs, or messages rather than through `ActorContext<TMessage>`.
 
 Because of this, state inside a single actor usually does not need `lock`, `ConcurrentDictionary`, or CAS-style concurrency protection.
 
@@ -178,6 +179,8 @@ The minimum actor contract remains `IActor<TMessage>`. Do not require lifecycle 
 Lifecycle hooks are local runtime hooks, not supervision, persistence, dependency injection, or distributed activation. `IActorStopping<TMessage>` should do final cleanup directly because the actor is already closed to new application messages when it runs.
 
 ## Long-Running Work
+
+Actor context is intentionally narrow. It exposes the current actor ref, response helpers, and timer helpers, but not `ActorSystem`. Do not add broad service-locator access to actor handlers.
 
 Actor state should be touched only during actor turns. For long-running work:
 

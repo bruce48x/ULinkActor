@@ -400,6 +400,12 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public void Actor_context_does_not_expose_actor_system()
+    {
+        Assert.Null(typeof(ActorContext<object>).GetProperty("System"));
+    }
+
+    [Fact]
     public async Task Slow_message_detection_adds_trace_event_to_dispatch_activity()
     {
         TaskCompletionSource<Activity> stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
