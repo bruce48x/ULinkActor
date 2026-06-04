@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.10
+
+### Changed
+
+- Refactored per-actor stop sequencing into an internal stop sequence component while preserving drain, timeout, and stopping hook behavior.
+
 ## 0.5.9
 
 ### Changed

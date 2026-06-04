@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using ULinkActor.Abstractions;
 using ULinkActor.Lifecycle;
 using ULinkActor.Messaging;
@@ -11,9 +10,7 @@ internal sealed class ActorCell
     private readonly IActor actor;
     private readonly ActorTimerSet timers = new();
     private readonly ActorTurnRunner turnRunner;
-    private readonly object stopGate = new();
-    private Task? stopTask;
-    private int stopping;
+    private readonly ActorCellStopSequence stopSequence;
 
     public ActorCell(
         ActorSystem system,
@@ -30,6 +27,7 @@ internal sealed class ActorCell
         MessageType = messageType;
         turnRunner = new ActorTurnRunner(system, this, self, actor, slowMessageThreshold);
         Mailbox = new MailboxCore(turnRunner.Dispatch, mailboxCapacity);
+        stopSequence = new ActorCellStopSequence(Mailbox, timers);
     }
 
     internal ActorRef Self { get; }
@@ -42,12 +40,9 @@ internal sealed class ActorCell
 
     internal Task Completion => Mailbox.Completion;
 
-    internal bool IsStopping => Volatile.Read(ref stopping) != 0;
+    internal bool IsStopping => stopSequence.IsStopping;
 
-    internal ActorState State =>
-        Volatile.Read(ref stopping) == 0 ? ActorState.Active
-        : Completion.IsCompleted ? ActorState.Dead
-        : ActorState.Draining;
+    internal ActorState State => stopSequence.GetState();
 
     public MailboxMetrics GetMailboxMetrics()
     {
@@ -75,11 +70,6 @@ internal sealed class ActorCell
         timers.Add(timer);
     }
 
-    private void DisposeTimers()
-    {
-        timers.DisposeAll();
-    }
-
     public void Complete()
     {
         Mailbox.Complete();
@@ -87,75 +77,16 @@ internal sealed class ActorCell
 
     public async ValueTask StopAsync()
     {
-        await RequestStopAsync(runStoppingHook: false).ConfigureAwait(false);
+        await stopSequence.StopAsync().ConfigureAwait(false);
     }
 
     public async ValueTask<ActorStopResult> StopAsync(TimeSpan drainTimeout)
     {
-        if (drainTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
-        }
-
-        return await WaitForStop(RequestStopAsync(runStoppingHook: false), drainTimeout).ConfigureAwait(false);
+        return await stopSequence.StopAsync(drainTimeout).ConfigureAwait(false);
     }
 
     public Task RequestStopAsync(bool runStoppingHook = true)
     {
-        lock (stopGate)
-        {
-            if (stopTask is not null)
-            {
-                return stopTask;
-            }
-
-            Interlocked.Exchange(ref stopping, 1);
-            DisposeTimers();
-            stopTask = RunStopSequenceAsync(runStoppingHook);
-            return stopTask;
-        }
+        return stopSequence.RequestStopAsync(runStoppingHook);
     }
-
-    private async Task RunStopSequenceAsync(bool runStoppingHook)
-    {
-        Exception? stopError = null;
-
-        try
-        {
-            if (runStoppingHook)
-            {
-                TaskCompletionSource<object?> stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                await Mailbox.Send(new Envelope(ActorLifecycleMessage.Stopping, stopped), CancellationToken.None).ConfigureAwait(false);
-                await stopped.Task.ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            stopError = ex;
-        }
-        finally
-        {
-            Complete();
-            await Completion.ConfigureAwait(false);
-        }
-
-        if (stopError is not null)
-        {
-            ExceptionDispatchInfo.Capture(stopError).Throw();
-        }
-    }
-
-    private static async ValueTask<ActorStopResult> WaitForStop(Task stopTask, TimeSpan drainTimeout)
-    {
-        try
-        {
-            await stopTask.WaitAsync(drainTimeout).ConfigureAwait(false);
-            return ActorStopResult.Drained;
-        }
-        catch (TimeoutException)
-        {
-            return ActorStopResult.TimedOut;
-        }
-    }
-
 }
