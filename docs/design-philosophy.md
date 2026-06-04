@@ -27,7 +27,7 @@ We do not attempt to make cross-process calls look like local calls. Network cal
 This principle comes directly from skynet's author: "Attempting to erase the difference between network and local communication is wrong. The physical bandwidth gap between bus and TCP should not be forcibly abstracted into one API."
 
 In practice:
-- `Tell` / `Call` are process-local operations
+- `Send` / `Call` are process-local operations
 - Cross-node communication is handled by a higher-level framework (ULinkGame)
 - The naming convention explicitly distinguishes them
 
@@ -130,4 +130,4 @@ Actor message handlers return `ValueTask` to avoid allocations for synchronous c
 
 ## Versioning
 
-ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.7.
+ULinkActor follows semantic versioning. While the runtime is still pre-1.0, breaking changes may occur between 0.x versions as the public API is hardened. After 1.0, breaking changes require a major version increment.

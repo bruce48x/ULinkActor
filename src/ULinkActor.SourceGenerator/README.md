@@ -142,7 +142,7 @@ internal sealed class RoomActor : IActor<RoomActorClientMessage>
 }
 ```
 
-First-version limitations:
+Current limitations:
 
 - The interface must be `public`.
 - Generic interfaces and generic methods are not supported.
@@ -180,7 +180,7 @@ Source generation is the preferred path for making ULinkActor easier to use with
 - Keep Roslyn references inside the generator project.
 - Do not add runtime reflection to actor discovery, dispatch, generated proxy calls, or response binding.
 
-If the generator becomes part of the default `ULinkActor` package experience, it should still be distributed as a compile-time analyzer asset rather than as a runtime dependency.
+The generator is distributed as a compile-time analyzer asset rather than as a runtime dependency.
 
 ## License
 
