@@ -21,6 +21,8 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
     public event Action<ActorCallTimeout>? CallTimedOut;
 
+    public event Action<ActorObserverError>? ObserverErrorPublished;
+
     internal ActorCallContext? CurrentCallContext
     {
         get => currentCallContext.Value;
@@ -563,7 +565,8 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             return;
         }
 
-        DeadLetter deadLetter = new(target, message, reason);
+        string messageType = GetMessageType(message);
+        DeadLetter deadLetter = new(target, messageType, reason);
 
         foreach (Action<DeadLetter> handler in handlers.GetInvocationList().Cast<Action<DeadLetter>>())
         {
@@ -571,8 +574,9 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             {
                 handler(deadLetter);
             }
-            catch
+            catch (Exception ex)
             {
+                PublishObserverError(ActorObserverErrorSource.DeadLetterHandler, target, messageType, ex);
             }
         }
     }
@@ -586,7 +590,8 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             return;
         }
 
-        SlowMessage slowMessage = new(actorId, message, elapsed);
+        string messageType = GetMessageType(message);
+        SlowMessage slowMessage = new(actorId, messageType, elapsed);
 
         foreach (Action<SlowMessage> handler in handlers.GetInvocationList().Cast<Action<SlowMessage>>())
         {
@@ -594,8 +599,9 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             {
                 handler(slowMessage);
             }
-            catch
+            catch (Exception ex)
             {
+                PublishObserverError(ActorObserverErrorSource.SlowMessageHandler, actorId, messageType, ex);
             }
         }
     }
@@ -609,7 +615,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         IReadOnlyList<ActorId> callChain)
     {
         ActorId[] snapshot = callChain.ToArray();
-        return new ActorCallTimeout(caller, target, request, timeout, reason, snapshot);
+        return new ActorCallTimeout(caller, target, GetMessageType(request), timeout, reason, snapshot);
     }
 
     internal TimeoutException CreateCallTimeoutException(ActorCallTimeout timeout, string message)
@@ -641,8 +647,37 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             {
                 handler(timeout);
             }
+            catch (Exception ex)
+            {
+                PublishObserverError(ActorObserverErrorSource.CallTimeoutHandler, timeout.Target, timeout.RequestType, ex);
+            }
+        }
+    }
+
+    internal void PublishObserverError(
+        ActorObserverErrorSource source,
+        ActorId? actorId,
+        string messageType,
+        Exception exception)
+    {
+        Action<ActorObserverError>? handlers = ObserverErrorPublished;
+
+        if (handlers is null)
+        {
+            return;
+        }
+
+        ActorObserverError observerError = new(source, actorId, messageType, exception);
+
+        foreach (Action<ActorObserverError> handler in handlers.GetInvocationList().Cast<Action<ActorObserverError>>())
+        {
+            try
+            {
+                handler(observerError);
+            }
             catch
             {
+                // Observer error handlers are the last diagnostic boundary.
             }
         }
     }
@@ -657,6 +692,11 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             "Actor mailbox is full." => "full",
             _ => "other"
         };
+    }
+
+    internal static string GetMessageType(object message)
+    {
+        return message.GetType().FullName ?? message.GetType().Name;
     }
 
     private sealed class CallTimeoutRegistrationState

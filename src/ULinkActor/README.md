@@ -94,10 +94,10 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - Bounded mailbox capacity provides backpressure.
 - The runtime does not preempt a running actor turn. Slow-message diagnostics report long handlers without allowing the mailbox to advance concurrently.
 - **Actor state machine** (0.3.0): `ActorState` enum (`Active` / `Draining` / `Dead`) exposed via `ActorHandle.GetState()` and `ActorSystem.GetActorState()`.
-- **Message interceptor** (0.3.0): `IActorMessageInterceptor` hooks before and after every message dispatch.
+- **Message interceptor** (0.3.0): `IActorMessageInterceptor` hooks before and after every message dispatch. Interceptor failures are reported through observer-error diagnostics and do not change actor message results.
 - **Circular call fast-fail** (0.3.0): circular actor call chains throw `InvalidOperationException` synchronously.
 - Named actors can be registered and resolved inside an `ActorSystem`; lookup validates the expected message type.
-- Mailbox metrics, slow message detection, dead letters, and .NET `ActivitySource` tracing are available for diagnostics.
+- Mailbox metrics, slow message detection, dead letters, observer errors, and .NET `ActivitySource` tracing are available for diagnostics. Diagnostic events expose message/request type names rather than payload objects.
 
 ## Non-Goals
 

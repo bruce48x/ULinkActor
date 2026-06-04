@@ -101,7 +101,7 @@ Bounded mailboxes apply backpressure. `Send` waits until capacity is available o
 
 `Call<T>` is request/response messaging. It is useful for querying actor state, requesting computed results, or waiting for actor-side work to complete.
 
-Call timeouts publish structured diagnostics with the caller actor, target actor, request object, timeout reason, and actor call chain when the call originated from another actor.
+Call timeouts publish structured diagnostics with the caller actor, target actor, request type, timeout reason, and actor call chain when the call originated from another actor.
 
 ### Timers
 
@@ -167,8 +167,9 @@ ULinkActor exposes diagnostics through standard .NET APIs:
 - Slow message detection.
 - Dead-letter publication.
 - Call-timeout root-cause diagnostics.
+- Observer error publication for diagnostic handler and message interceptor failures.
 
-The runtime does not bind to a specific logger, metrics backend, or APM platform.
+Diagnostic events expose message and request type names rather than payload objects. The runtime does not bind to a specific logger, metrics backend, or APM platform.
 
 ## Source Generation
 

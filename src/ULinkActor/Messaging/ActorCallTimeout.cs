@@ -9,7 +9,7 @@ public enum ActorCallTimeoutReason
 public sealed record ActorCallTimeout(
     ActorId? Caller,
     ActorId Target,
-    object Request,
+    string RequestType,
     TimeSpan Timeout,
     ActorCallTimeoutReason Reason,
     IReadOnlyList<ActorId> CallChain);

@@ -59,9 +59,9 @@ The runtime emits diagnostics through standard .NET telemetry APIs:
 
 - **ActivitySource** (`ULinkActor`): Distributed tracing spans for every message dispatch
 - **Meter** (`ULinkActor`): Counters for accepted/rejected/processed messages, call timeouts, dead letters; gauges for queue depth
-- **Events**: `DeadLetterPublished`, `SlowMessageDetected`, `CallTimedOut`
+- **Events**: `DeadLetterPublished`, `SlowMessageDetected`, `CallTimedOut`, `ObserverErrorPublished`
 
-No external agent or collector is required. Diagnostics are always on and can be consumed by any OpenTelemetry-compatible backend.
+No external agent or collector is required. Diagnostics are always on and can be consumed by any OpenTelemetry-compatible backend. Diagnostic events expose message and request type names rather than payload objects, and observer failures are reported separately instead of changing actor execution.
 
 ### 7. Compile-time over runtime
 
@@ -129,4 +129,4 @@ Actor message handlers return `ValueTask` to avoid allocations for synchronous c
 
 ## Versioning
 
-ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.3.
+ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.4.

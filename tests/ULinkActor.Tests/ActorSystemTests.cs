@@ -53,7 +53,7 @@ public sealed class ActorSystemTests
 
         Assert.Null(timeout.Caller);
         Assert.Equal(actorRef.Id, timeout.Target);
-        Assert.Equal("ping", timeout.Request);
+        Assert.Equal(typeof(string).FullName, timeout.RequestType);
         Assert.Equal(ActorCallTimeoutReason.ResponseTimeout, timeout.Reason);
         Assert.Empty(timeout.CallChain);
         Assert.Contains($"Target={actorRef.Id.Value}", exception.Message, StringComparison.Ordinal);
@@ -80,7 +80,7 @@ public sealed class ActorSystemTests
 
             Assert.Null(timeout.Caller);
             Assert.Equal(actorRef.Id, timeout.Target);
-            Assert.Equal("queued", timeout.Request);
+            Assert.Equal(typeof(string).FullName, timeout.RequestType);
             Assert.Equal(ActorCallTimeoutReason.QueueTimeout, timeout.Reason);
             Assert.Empty(timeout.CallChain);
             Assert.Contains("before it could be queued", exception.Message, StringComparison.Ordinal);
@@ -126,7 +126,7 @@ public sealed class ActorSystemTests
 
         Assert.Equal(upstream.Id, timeout.Caller);
         Assert.Equal(downstream.Id, timeout.Target);
-        Assert.IsType<DownstreamRequest>(timeout.Request);
+        Assert.Equal(typeof(DownstreamRequest).FullName, timeout.RequestType);
         Assert.Equal(ActorCallTimeoutReason.ResponseTimeout, timeout.Reason);
         Assert.Equal(new[] { upstream.Id }, timeout.CallChain);
     }
@@ -261,7 +261,7 @@ public sealed class ActorSystemTests
         Assert.Equal(1, metrics.EnqueuedCount);
         Assert.Equal(1, metrics.RejectedCount);
         Assert.Equal(actorRef.Id, deadLetter.Target);
-        Assert.Equal("second", deadLetter.Message);
+        Assert.Equal(typeof(string).FullName, deadLetter.MessageType);
         Assert.Equal("Actor mailbox is full.", deadLetter.Reason);
 
         actor.Release();
@@ -284,8 +284,29 @@ public sealed class ActorSystemTests
         DeadLetter deadLetter = Assert.Single(deadLetters);
         Assert.Equal(ActorSendResult.ActorUnavailable, result);
         Assert.Equal(actorRef.Id, deadLetter.Target);
-        Assert.Equal("late-message", deadLetter.Message);
+        Assert.Equal(typeof(string).FullName, deadLetter.MessageType);
         Assert.Equal("Actor does not exist.", deadLetter.Reason);
+    }
+
+    [Fact]
+    public async Task Diagnostic_handler_errors_publish_observer_error()
+    {
+        using ActorSystem system = new();
+        TaskCompletionSource<ActorObserverError> observerError = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        system.DeadLetterPublished += _ => throw new InvalidOperationException("dead letter handler failed");
+        system.ObserverErrorPublished += error => observerError.TrySetResult(error);
+        ActorHandle<object> actorHandle = system.Spawn(new IgnoringActor());
+        ActorRef<object> actorRef = actorHandle.Ref;
+
+        await actorHandle.Stop();
+        ActorSendResult result = actorRef.TrySend("late-message");
+        ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(ActorSendResult.ActorUnavailable, result);
+        Assert.Equal(ActorObserverErrorSource.DeadLetterHandler, error.Source);
+        Assert.Equal(actorRef.Id, error.ActorId);
+        Assert.Equal(typeof(string).FullName, error.MessageType);
+        Assert.IsType<InvalidOperationException>(error.Exception);
     }
 
     [Fact]
@@ -305,8 +326,19 @@ public sealed class ActorSystemTests
         SlowMessage slowMessage = await detected.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Equal(actorRef.Id, slowMessage.ActorId);
-        Assert.Equal("slow", slowMessage.Message);
+        Assert.Equal(typeof(string).FullName, slowMessage.MessageType);
         Assert.True(slowMessage.Elapsed >= TimeSpan.FromMilliseconds(10));
+    }
+
+    [Fact]
+    public void Diagnostic_events_do_not_expose_message_payloads()
+    {
+        Assert.Null(typeof(DeadLetter).GetProperty("Message"));
+        Assert.NotNull(typeof(DeadLetter).GetProperty("MessageType"));
+        Assert.Null(typeof(SlowMessage).GetProperty("Message"));
+        Assert.NotNull(typeof(SlowMessage).GetProperty("MessageType"));
+        Assert.Null(typeof(ActorCallTimeout).GetProperty("Request"));
+        Assert.NotNull(typeof(ActorCallTimeout).GetProperty("RequestType"));
     }
 
     [Fact]
@@ -846,7 +878,7 @@ public sealed class ActorSystemTests
 
         DeadLetter deadLetter = Assert.Single(deadLetters);
         Assert.Equal(actorRef.Id, deadLetter.Target);
-        Assert.Equal("late", deadLetter.Message);
+        Assert.Equal(typeof(string).FullName, deadLetter.MessageType);
         Assert.Equal("Actor is stopping.", deadLetter.Reason);
 
         actor.Release();
@@ -974,6 +1006,48 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
+    public async Task Message_interceptor_before_errors_do_not_prevent_actor_dispatch()
+    {
+        TaskCompletionSource<ActorObserverError> observerError = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            MessageInterceptor = new ThrowingBeforeInterceptor()
+        });
+        system.ObserverErrorPublished += error => observerError.TrySetResult(error);
+
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+
+        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+        ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal("hello", response);
+        Assert.Equal(ActorObserverErrorSource.MessageInterceptorBefore, error.Source);
+        Assert.Equal(actorRef.Id, error.ActorId);
+        Assert.Equal(typeof(string).FullName, error.MessageType);
+    }
+
+    [Fact]
+    public async Task Message_interceptor_after_errors_do_not_prevent_actor_dispatch()
+    {
+        TaskCompletionSource<ActorObserverError> observerError = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ActorSystem system = new(new ActorSystemOptions
+        {
+            MessageInterceptor = new ThrowingAfterInterceptor()
+        });
+        system.ObserverErrorPublished += error => observerError.TrySetResult(error);
+
+        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+
+        string response = await actorRef.Call<string>("hello", TimeSpan.FromSeconds(1));
+        ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal("hello", response);
+        Assert.Equal(ActorObserverErrorSource.MessageInterceptorAfter, error.Source);
+        Assert.Equal(actorRef.Id, error.ActorId);
+        Assert.Equal(typeof(string).FullName, error.MessageType);
+    }
+
+    [Fact]
     public void Public_options_do_not_expose_execution_timeout()
     {
         Assert.Null(typeof(ActorSystemOptions).GetProperty("ExecutionTimeout"));
@@ -995,7 +1069,7 @@ public sealed class ActorSystemTests
 
         DeadLetter deadLetter = Assert.Single(deadLetters);
         Assert.Equal(actorRef.Id, deadLetter.Target);
-        Assert.Equal("late-message", deadLetter.Message);
+        Assert.Equal(typeof(string).FullName, deadLetter.MessageType);
         Assert.Equal("Actor does not exist.", deadLetter.Reason);
     }
 
@@ -1391,6 +1465,32 @@ public sealed class ActorSystemTests
         {
             events.Add($"after:{message}:{error?.GetType().Name ?? "null"}");
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingBeforeInterceptor : IActorMessageInterceptor
+    {
+        public ValueTask OnBeforeMessage(ActorId actorId, object message, CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("before failed");
+        }
+
+        public ValueTask OnAfterMessage(ActorId actorId, object message, Exception? error, CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingAfterInterceptor : IActorMessageInterceptor
+    {
+        public ValueTask OnBeforeMessage(ActorId actorId, object message, CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnAfterMessage(ActorId actorId, object message, Exception? error, CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("after failed");
         }
     }
 

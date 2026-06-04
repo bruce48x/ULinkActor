@@ -1,17 +1,20 @@
 # Changelog
 
-## 0.3.3 — Unreleased
+## 0.3.4 — Unreleased
 
 ### Added
 
 - **Actor handle**: `ActorHandle<TMessage>` separates owner/admin operations from message-only `ActorRef<TMessage>`.
 - **Actor state machine**: `ActorState` enum (`Active`, `Draining`, `Dead`) exposed via `ActorHandle.GetState()` and `ActorSystem.GetActorState()`. Actors now have an explicit, queryable lifecycle.
 - **Message interceptor hooks**: `IActorMessageInterceptor` with `OnBeforeMessage` and `OnAfterMessage` callbacks, configured per-`ActorSystem` via `ActorSystemOptions.MessageInterceptor`. Enables message recording, replay, and custom diagnostics without modifying the runtime.
+- **Observer error diagnostics**: `ActorSystem.ObserverErrorPublished` reports failures from diagnostic event handlers and message interceptors without changing actor message execution.
 - **Design philosophy documentation**: `docs/design-philosophy.md` documents the Skynet-influenced principles behind the runtime.
 
 ### Changed
 
 - **Spawn API** (breaking): `ActorSystem.Spawn(...)` and generated typed spawn extensions now return `ActorHandle<TMessage>`. Use `handle.Ref` when passing a message-only actor reference to other code.
+- **Diagnostic events** (breaking): `DeadLetter`, `SlowMessage`, and `ActorCallTimeout` now expose message/request type names instead of the original message or request payload.
+- **Message interceptor errors**: `IActorMessageInterceptor` exceptions are now reported through `ObserverErrorPublished` and no longer fail actor message dispatch.
 - **Stop flow**: Actor removal from the registry now happens *after* the mailbox drain completes, so `GetActorState()` correctly reports `Draining` during the drain window.
 - **Graceful stopping**: `IActorStopping<TMessage>` now runs as the final mailbox turn during explicit stop. The hook no longer runs concurrently with an in-flight message, and drain timeouts leave the actor in `Draining` until the stop sequence actually completes.
 

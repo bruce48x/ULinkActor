@@ -187,7 +187,7 @@ internal sealed class ActorCell
         {
             if (interceptor is not null)
             {
-                await interceptor.OnBeforeMessage(Self.Id, envelope.Message, CancellationToken.None).ConfigureAwait(false);
+                await RunBeforeInterceptor(interceptor, envelope, messageType).ConfigureAwait(false);
             }
 
             system.CurrentCallContext = new ActorCallContext(Self.Id, callChain);
@@ -237,15 +237,47 @@ internal sealed class ActorCell
 
             if (interceptor is not null)
             {
-                try
-                {
-                    await interceptor.OnAfterMessage(Self.Id, envelope.Message, error, CancellationToken.None).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // Swallow interceptor errors to avoid crashing the mailbox.
-                }
+                await RunAfterInterceptor(interceptor, envelope, messageType, error).ConfigureAwait(false);
             }
+        }
+    }
+
+    private async ValueTask RunBeforeInterceptor(
+        IActorMessageInterceptor interceptor,
+        Envelope envelope,
+        string messageType)
+    {
+        try
+        {
+            await interceptor.OnBeforeMessage(Self.Id, envelope.Message, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            system.PublishObserverError(
+                ActorObserverErrorSource.MessageInterceptorBefore,
+                Self.Id,
+                messageType,
+                ex);
+        }
+    }
+
+    private async ValueTask RunAfterInterceptor(
+        IActorMessageInterceptor interceptor,
+        Envelope envelope,
+        string messageType,
+        Exception? error)
+    {
+        try
+        {
+            await interceptor.OnAfterMessage(Self.Id, envelope.Message, error, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            system.PublishObserverError(
+                ActorObserverErrorSource.MessageInterceptorAfter,
+                Self.Id,
+                messageType,
+                ex);
         }
     }
 

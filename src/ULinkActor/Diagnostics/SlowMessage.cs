@@ -1,3 +1,3 @@
 namespace ULinkActor;
 
-public sealed record SlowMessage(ActorId ActorId, object Message, TimeSpan Elapsed);
+public sealed record SlowMessage(ActorId ActorId, string MessageType, TimeSpan Elapsed);

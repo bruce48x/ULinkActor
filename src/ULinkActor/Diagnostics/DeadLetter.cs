@@ -1,3 +1,3 @@
 namespace ULinkActor;
 
-public sealed record DeadLetter(ActorId Target, object Message, string Reason);
+public sealed record DeadLetter(ActorId Target, string MessageType, string Reason);

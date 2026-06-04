@@ -198,7 +198,7 @@ Use standard .NET APIs:
 - `Meter` for metrics.
 - Events for dead letters, slow messages, and call timeouts.
 
-Metric tags must stay low-cardinality. Do not put actor ids, actor names, message payloads, or request values into metric tags. Trace tags may include actor ids because they belong to individual spans.
+Metric tags must stay low-cardinality. Do not put actor ids, actor names, message payloads, or request values into metric tags. Diagnostic events should expose message/request type names rather than payload objects. Trace tags may include actor ids because they belong to individual spans.
 
 ## Test Responsibility
 
