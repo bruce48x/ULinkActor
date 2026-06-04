@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+### Changed
+
+- Refactored actor spawning and startup rollback into an internal spawner component while preserving public spawn behavior.
+
 ## 0.5.3
 
 ### Changed

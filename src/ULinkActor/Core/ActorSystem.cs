@@ -11,8 +11,8 @@ public sealed class ActorSystem : IAsyncDisposable
     private readonly ActorRegistry registry = new();
     private readonly ActorSystemDiagnosticsPublisher diagnostics = new();
     private readonly ActorMessageDispatcher dispatcher;
+    private readonly ActorSpawner spawner;
     private readonly ActorSystemOptions options;
-    private long nextActorId;
     private bool disposed;
 
     public event Action<DeadLetter>? DeadLetterPublished
@@ -74,6 +74,7 @@ public sealed class ActorSystem : IAsyncDisposable
 
         this.options = options;
         dispatcher = new ActorMessageDispatcher(registry, diagnostics, () => CurrentCallContext);
+        spawner = new ActorSpawner(this, registry, options);
     }
 
     public ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor)
@@ -93,8 +94,9 @@ public sealed class ActorSystem : IAsyncDisposable
     {
         ValidateActorName(name);
         ArgumentNullException.ThrowIfNull(actor);
+        ObjectDisposedException.ThrowIf(disposed, this);
 
-        ActorRef actorRef = await SpawnCoreAsync(
+        ActorRef actorRef = await spawner.SpawnAsync(
             new TypedActorAdapter<TMessage>(actor),
             typeof(TMessage),
             spawnOptions,
@@ -105,60 +107,14 @@ public sealed class ActorSystem : IAsyncDisposable
     public async ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor, ActorSpawnOptions? spawnOptions)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        ObjectDisposedException.ThrowIf(disposed, this);
 
-        ActorRef actorRef = await SpawnCoreAsync(
+        ActorRef actorRef = await spawner.SpawnAsync(
             new TypedActorAdapter<TMessage>(actor),
             typeof(TMessage),
             spawnOptions,
             null).ConfigureAwait(false);
         return new ActorHandle<TMessage>(actorRef);
-    }
-
-    private async ValueTask<ActorRef> SpawnCoreAsync(
-        IActor actor,
-        Type messageType,
-        ActorSpawnOptions? spawnOptions,
-        string? name)
-    {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        ArgumentNullException.ThrowIfNull(actor);
-        ArgumentNullException.ThrowIfNull(messageType);
-
-        int mailboxCapacity = spawnOptions?.MailboxCapacity ?? options.MailboxCapacity;
-
-        if (mailboxCapacity <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(spawnOptions), "MailboxCapacity must be greater than zero.");
-        }
-
-        ActorId id = new(Interlocked.Increment(ref nextActorId));
-        ActorRef actorRef = new(this, id);
-        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, name);
-
-        if (!registry.TryAdd(id, cell))
-        {
-            throw new InvalidOperationException($"Actor id {id} already exists.");
-        }
-
-        if (name is not null && !registry.TryAddName(name, id))
-        {
-            registry.Remove(id, cell);
-            cell.Complete();
-            throw new InvalidOperationException($"Actor name '{name}' already exists.");
-        }
-
-        try
-        {
-            await cell.StartAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            registry.Remove(id, cell);
-            cell.Complete();
-            throw;
-        }
-
-        return actorRef;
     }
 
     internal ValueTask Send(ActorId target, object message, CancellationToken cancellationToken = default)
