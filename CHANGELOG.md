@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5
+
+### Changed
+
+- Refactored actor stop and disposal cleanup into an internal stopper component while preserving drain and registry-removal behavior.
+
 ## 0.5.4
 
 ### Changed

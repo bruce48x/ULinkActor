@@ -12,6 +12,7 @@ public sealed class ActorSystem : IAsyncDisposable
     private readonly ActorSystemDiagnosticsPublisher diagnostics = new();
     private readonly ActorMessageDispatcher dispatcher;
     private readonly ActorSpawner spawner;
+    private readonly ActorStopper stopper;
     private readonly ActorSystemOptions options;
     private bool disposed;
 
@@ -75,6 +76,7 @@ public sealed class ActorSystem : IAsyncDisposable
         this.options = options;
         dispatcher = new ActorMessageDispatcher(registry, diagnostics, () => CurrentCallContext);
         spawner = new ActorSpawner(this, registry, options);
+        stopper = new ActorStopper(registry);
     }
 
     public ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor)
@@ -165,67 +167,18 @@ public sealed class ActorSystem : IAsyncDisposable
         return dispatcher.Call<TResponse>(target, request, options, cancellationToken);
     }
 
-    public async ValueTask Stop(ActorId target)
+    public ValueTask Stop(ActorId target)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        if (!registry.TryGet(target, out ActorCell? cell))
-        {
-            return;
-        }
-
-        try
-        {
-            await cell.RequestStopAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            RemoveActor(target, cell);
-        }
+        return stopper.StopAsync(target);
     }
 
-    public async ValueTask<ActorStopResult> Stop(ActorId target, TimeSpan drainTimeout)
+    public ValueTask<ActorStopResult> Stop(ActorId target, TimeSpan drainTimeout)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        if (drainTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(drainTimeout), "Drain timeout must be greater than zero.");
-        }
-
-        if (!registry.TryGet(target, out ActorCell? cell))
-        {
-            return ActorStopResult.Drained;
-        }
-
-        ActorStopResult result;
-        Task stopTask = cell.RequestStopAsync();
-
-        try
-        {
-            await stopTask.WaitAsync(drainTimeout).ConfigureAwait(false);
-            result = ActorStopResult.Drained;
-        }
-        catch (TimeoutException)
-        {
-            result = ActorStopResult.TimedOut;
-        }
-        catch
-        {
-            RemoveActor(target, cell);
-            throw;
-        }
-
-        if (result == ActorStopResult.Drained)
-        {
-            RemoveActor(target, cell);
-        }
-        else
-        {
-            _ = RemoveActorWhenCompleted(target, cell);
-        }
-
-        return result;
+        return stopper.StopAsync(target, drainTimeout);
     }
 
     internal ValueTask Stop(ActorRef actorRef)
@@ -369,23 +322,6 @@ public sealed class ActorSystem : IAsyncDisposable
         return false;
     }
 
-    private async Task RemoveActorWhenCompleted(ActorId target, ActorCell cell)
-    {
-        try
-        {
-            await cell.Completion.ConfigureAwait(false);
-        }
-        finally
-        {
-            RemoveActor(target, cell);
-        }
-    }
-
-    private void RemoveActor(ActorId target, ActorCell cell)
-    {
-        registry.Remove(target, cell);
-    }
-
     private static void ValidateActorName(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -400,11 +336,6 @@ public sealed class ActorSystem : IAsyncDisposable
 
         disposed = true;
 
-        ActorCell[] cells = registry.SnapshotAndClear();
-
-        foreach (ActorCell cell in cells)
-        {
-            await cell.StopAsync().ConfigureAwait(false);
-        }
+        await stopper.StopAllForDisposeAsync().ConfigureAwait(false);
     }
 }
