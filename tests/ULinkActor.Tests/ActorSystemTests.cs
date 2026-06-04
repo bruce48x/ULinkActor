@@ -927,29 +927,9 @@ public sealed class ActorSystemTests
     }
 
     [Fact]
-    public async Task Execution_timeout_cancels_long_running_message_and_continues_processing()
+    public void Public_options_do_not_expose_execution_timeout()
     {
-        using ActorSystem system = new(new ActorSystemOptions
-        {
-            ExecutionTimeout = TimeSpan.FromMilliseconds(50)
-        });
-
-        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromSeconds(5)));
-
-        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
-            await actorRef.Call<string>("slow", TimeSpan.FromSeconds(1)));
-
-        Assert.Contains("execution timed out", exception.Message, StringComparison.Ordinal);
-
-        await actorRef.Send("after-timeout");
-        await Eventually(() => actorRef.GetMailboxMetrics().ProcessedCount >= 2);
-    }
-
-    [Fact]
-    public void Execution_timeout_must_be_greater_than_zero()
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new ActorSystem(new ActorSystemOptions { ExecutionTimeout = TimeSpan.Zero }));
+        Assert.Null(typeof(ActorSystemOptions).GetProperty("ExecutionTimeout"));
     }
 
     [Fact]

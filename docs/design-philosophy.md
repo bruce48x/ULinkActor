@@ -117,7 +117,7 @@ If a feature needs serialization, network routing, persistence, distributed iden
 
 ### Single-threaded per actor vs work-stealing
 
-ULinkActor uses `ActionBlock<T>` with `MaxDegreeOfParallelism = 1` per actor. This guarantees sequential execution but means a single slow actor can occupy a thread pool thread. The `ExecutionTimeout` option mitigates this by forcibly yielding the mailbox after a configurable duration.
+ULinkActor uses `ActionBlock<T>` with `MaxDegreeOfParallelism = 1` per actor. This guarantees sequential execution but means a single slow actor can occupy a thread pool thread. The runtime deliberately does not preempt or skip a running actor turn: timing out the wait would let the mailbox advance while the original handler may still be touching actor state. Slow-message diagnostics make this visible, and recovery belongs to application shutdown or process supervision.
 
 ### ActionBlock vs custom scheduler
 
@@ -125,8 +125,8 @@ We use TPL Dataflow's `ActionBlock` rather than a custom work queue. This trades
 
 ### ValueTask vs Task
 
-Actor message handlers return `ValueTask` to avoid allocations for synchronous completions. However, the `ExecutionTimeout` feature requires wrapping in `Task` via `AsTask()`, which allocates. This is acceptable because execution timeout is an opt-in safety net, not the hot path.
+Actor message handlers return `ValueTask` to avoid allocations for synchronous completions. The runtime awaits the handler directly and preserves the actor turn boundary; it does not wrap handlers in preemptive timeout machinery.
 
 ## Versioning
 
-ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.0.
+ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.2.

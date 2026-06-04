@@ -48,11 +48,6 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(options), "SlowMessageThreshold must be greater than zero when set.");
         }
 
-        if (options.ExecutionTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "ExecutionTimeout must be greater than zero when set.");
-        }
-
         this.options = options;
     }
 
@@ -101,7 +96,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         ActorId id = new(Interlocked.Increment(ref nextActorId));
         ActorRef actorRef = new(this, id);
-        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, options.ExecutionTimeout, name);
+        ActorCell cell = new(this, actorRef, actor, messageType, mailboxCapacity, options.SlowMessageThreshold, name);
 
         if (!actors.TryAdd(id, cell))
         {

@@ -91,7 +91,7 @@ The package also includes compile-time analyzer warnings for actor self-calls, b
 - Timer messages enter the actor mailbox and follow the same sequential execution rule.
 - Optional `IActorStarted<TMessage>` and `IActorStopping<TMessage>` hooks support local startup and graceful stop work. During explicit stop, `IActorStopping<TMessage>` runs as the final mailbox turn after queued messages drain.
 - Bounded mailbox capacity provides backpressure.
-- **Execution timeout** (0.3.0): opt-in per-message timeout interrupts stuck handlers via `WaitAsync`. The mailbox continues to the next message.
+- The runtime does not preempt a running actor turn. Slow-message diagnostics report long handlers without allowing the mailbox to advance concurrently.
 - **Actor state machine** (0.3.0): `ActorState` enum (`Active` / `Draining` / `Dead`) exposed via `GetState()`.
 - **Message interceptor** (0.3.0): `IActorMessageInterceptor` hooks before and after every message dispatch.
 - **Circular call fast-fail** (0.3.0): circular actor call chains throw `InvalidOperationException` synchronously.

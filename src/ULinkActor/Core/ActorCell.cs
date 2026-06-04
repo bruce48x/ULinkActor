@@ -14,7 +14,6 @@ internal sealed class ActorCell
     private readonly ConcurrentBag<IDisposable> timers = new();
     private readonly ActorSystem system;
     private readonly TimeSpan? slowMessageThreshold;
-    private readonly TimeSpan? executionTimeout;
     private readonly object stopGate = new();
     private Task? stopTask;
     private int stopping;
@@ -26,7 +25,6 @@ internal sealed class ActorCell
         Type messageType,
         int mailboxCapacity,
         TimeSpan? slowMessageThreshold,
-        TimeSpan? executionTimeout,
         string? name)
     {
         this.system = system;
@@ -34,7 +32,6 @@ internal sealed class ActorCell
         this.actor = actor;
         MessageType = messageType;
         this.slowMessageThreshold = slowMessageThreshold;
-        this.executionTimeout = executionTimeout;
         Name = name;
         Mailbox = new MailboxCore(Dispatch, mailboxCapacity);
     }
@@ -199,19 +196,6 @@ internal sealed class ActorCell
             {
                 await actor.OnStopping(context).ConfigureAwait(false);
                 envelope.Response?.TrySetResult(null);
-            }
-            else if (executionTimeout is not null)
-            {
-                using var timeoutCts = new CancellationTokenSource(executionTimeout.Value);
-                try
-                {
-                    await actor.OnMessage(context, envelope.Message).AsTask().WaitAsync(timeoutCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-                {
-                    throw new TimeoutException(
-                        $"Actor {Self.Id.Value} message execution timed out after {executionTimeout.Value.TotalMilliseconds:F0}ms.");
-                }
             }
             else
             {

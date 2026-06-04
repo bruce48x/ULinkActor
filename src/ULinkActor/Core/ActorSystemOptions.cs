@@ -6,7 +6,5 @@ public sealed class ActorSystemOptions
 
     public TimeSpan? SlowMessageThreshold { get; init; }
 
-    public TimeSpan? ExecutionTimeout { get; init; }
-
     public IActorMessageInterceptor? MessageInterceptor { get; init; }
 }
