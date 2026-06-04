@@ -48,9 +48,9 @@ public sealed class RoomActor : IActor<RoomMessage>
 Start the actor system and send a message:
 
 ```csharp
-using ActorSystem system = new();
+await using ActorSystem system = new();
 
-ActorHandle<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
+ActorHandle<RoomMessage> room = await system.SpawnAsync<RoomMessage>(new RoomActor());
 
 await room.Ref.Send(new JoinRoom(10001));
 ```

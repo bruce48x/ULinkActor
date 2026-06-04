@@ -170,6 +170,7 @@ internal sealed class ActorCell
         ActorContextCore context = new(Self, this, envelope);
         ActorCallContext? previousCallContext = system.CurrentCallContext;
         IReadOnlyList<ActorId> callChain = AppendCallChain(envelope.CallChain, Self.Id);
+        ActorCallContext currentCallContext = new(Self.Id, callChain);
         long startedAt = slowMessageThreshold is null ? 0 : Stopwatch.GetTimestamp();
         string messageType = envelope.Message.GetType().FullName ?? envelope.Message.GetType().Name;
         IActorMessageInterceptor? interceptor = system.MessageInterceptor;
@@ -190,7 +191,7 @@ internal sealed class ActorCell
                 await RunBeforeInterceptor(interceptor, envelope, messageType).ConfigureAwait(false);
             }
 
-            system.CurrentCallContext = new ActorCallContext(Self.Id, callChain);
+            system.CurrentCallContext = currentCallContext;
 
             if (envelope.Message is ActorLifecycleMessage.Stopping)
             {
@@ -214,6 +215,7 @@ internal sealed class ActorCell
         }
         finally
         {
+            currentCallContext.Deactivate();
             system.CurrentCallContext = previousCallContext;
             ULinkActorDiagnostics.MessageProcessedCounter.Add(1, CreateMessageKindTag(envelope));
 

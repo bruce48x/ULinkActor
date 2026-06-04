@@ -38,6 +38,13 @@ internal sealed class ActorRef
         return system.TrySend(Id, message);
     }
 
+    internal ActorSendResult TrySend(object message, ActivityContext parentActivityContext)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        return system.TrySend(Id, message, parentActivityContext);
+    }
+
     public ValueTask<TResponse> Call<TResponse>(
         object request,
         ActorCallOptions options,

@@ -30,14 +30,9 @@ internal sealed class ActorTimer : IDisposable
 
     private void OnTick(object? state)
     {
-        _ = SendTick();
-    }
-
-    private async Task SendTick()
-    {
         try
         {
-            await target.Send(message, parentActivityContext).ConfigureAwait(false);
+            target.TrySend(message, parentActivityContext);
         }
         catch (ObjectDisposedException)
         {

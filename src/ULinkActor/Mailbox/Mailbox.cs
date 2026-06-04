@@ -41,6 +41,7 @@ internal sealed class Mailbox
                 MaxDegreeOfParallelism = 1
             });
         ActiveMailboxes.TryAdd(id, this);
+        _ = RemoveFromActiveWhenCompleted();
     }
 
     public Task Completion => block.Completion;
@@ -77,7 +78,6 @@ internal sealed class Mailbox
     public void Complete()
     {
         block.Complete();
-        ActiveMailboxes.TryRemove(id, out _);
     }
 
     public MailboxMetrics GetMetrics()
@@ -99,5 +99,17 @@ internal sealed class Mailbox
     private static KeyValuePair<string, object?> CreateKindTag(Envelope envelope)
     {
         return new KeyValuePair<string, object?>("kind", envelope.Response is null ? "send" : "call");
+    }
+
+    private async Task RemoveFromActiveWhenCompleted()
+    {
+        try
+        {
+            await block.Completion.ConfigureAwait(false);
+        }
+        finally
+        {
+            ActiveMailboxes.TryRemove(id, out _);
+        }
     }
 }

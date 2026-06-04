@@ -99,20 +99,20 @@ public sealed class TypedActorSpawnGenerator : IIncrementalGenerator
             INamedTypeSymbol messageType = GetTypedActorMessage(actorType)!;
             string actorTypeName = actorType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string messageTypeName = messageType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            string methodName = "Spawn" + SanitizeIdentifier(actorType.Name);
+            string methodName = "Spawn" + SanitizeIdentifier(actorType.Name) + "Async";
 
-            source.AppendLine($"    public static global::ULinkActor.ActorHandle<{messageTypeName}> {methodName}(");
+            source.AppendLine($"    public static global::System.Threading.Tasks.ValueTask<global::ULinkActor.ActorHandle<{messageTypeName}>> {methodName}(");
             source.AppendLine("        this global::ULinkActor.ActorSystem system,");
             source.AppendLine($"        {actorTypeName} actor,");
             source.AppendLine("        global::ULinkActor.ActorSpawnOptions? options = null)");
             source.AppendLine("    {");
             source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(system);");
             source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(actor);");
-            source.AppendLine($"        return system.Spawn<{messageTypeName}>(actor, options);");
+            source.AppendLine($"        return system.SpawnAsync<{messageTypeName}>(actor, options);");
             source.AppendLine("    }");
             source.AppendLine();
 
-            source.AppendLine($"    public static global::ULinkActor.ActorHandle<{messageTypeName}> {methodName}(");
+            source.AppendLine($"    public static global::System.Threading.Tasks.ValueTask<global::ULinkActor.ActorHandle<{messageTypeName}>> {methodName}(");
             source.AppendLine("        this global::ULinkActor.ActorSystem system,");
             source.AppendLine("        string name,");
             source.AppendLine($"        {actorTypeName} actor,");
@@ -121,7 +121,7 @@ public sealed class TypedActorSpawnGenerator : IIncrementalGenerator
             source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(system);");
             source.AppendLine("        global::System.ArgumentException.ThrowIfNullOrWhiteSpace(name);");
             source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(actor);");
-            source.AppendLine($"        return system.Spawn<{messageTypeName}>(name, actor, options);");
+            source.AppendLine($"        return system.SpawnAsync<{messageTypeName}>(name, actor, options);");
             source.AppendLine("    }");
             source.AppendLine();
         }

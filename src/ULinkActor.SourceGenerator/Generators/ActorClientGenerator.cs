@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -330,7 +331,7 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
     private static void GenerateMethod(StringBuilder source, IMethodSymbol method, string clientName)
     {
         string returnType = method.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        string methodName = SanitizeIdentifier(method.Name);
+        string methodName = EscapeIdentifier(method.Name);
         string requestName = GetRequestName(clientName, method);
 
         source.AppendLine();
@@ -346,7 +347,7 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
             IParameterSymbol parameter = method.Parameters[i];
             source.Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
             source.Append(' ');
-            source.Append(SanitizeIdentifier(parameter.Name));
+            source.Append(EscapeIdentifier(parameter.Name));
         }
 
         source.AppendLine(")");
@@ -373,10 +374,22 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
 
     private static IMethodSymbol[] GetClientMethods(INamedTypeSymbol clientType)
     {
-        return clientType.GetMembers()
+        return GetClientInterfaces(clientType)
+            .SelectMany(static type => type.GetMembers())
             .OfType<IMethodSymbol>()
             .Where(static method => method.MethodKind == MethodKind.Ordinary && !method.IsStatic)
             .ToArray();
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetClientInterfaces(INamedTypeSymbol clientType)
+    {
+        foreach (INamedTypeSymbol interfaceType in clientType.AllInterfaces
+            .OrderBy(static type => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+        {
+            yield return interfaceType;
+        }
+
+        yield return clientType;
     }
 
     private static void AppendRequestConstruction(StringBuilder source, string requestName, IMethodSymbol method)
@@ -392,7 +405,7 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
                 source.Append(", ");
             }
 
-            source.Append(SanitizeIdentifier(method.Parameters[i].Name));
+            source.Append(EscapeIdentifier(method.Parameters[i].Name));
         }
 
         source.Append(')');
@@ -464,5 +477,15 @@ public sealed class ActorClientGenerator : IIncrementalGenerator
         }
 
         return builder.Length == 0 ? "Value" : builder.ToString();
+    }
+
+    private static string EscapeIdentifier(string value)
+    {
+        string identifier = SanitizeIdentifier(value);
+
+        return SyntaxFacts.GetKeywordKind(identifier) != SyntaxKind.None ||
+            SyntaxFacts.GetContextualKeywordKind(identifier) != SyntaxKind.None
+            ? "@" + identifier
+            : identifier;
     }
 }

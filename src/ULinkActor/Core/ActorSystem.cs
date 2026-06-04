@@ -6,7 +6,7 @@ using ULinkActor.Messaging;
 
 namespace ULinkActor;
 
-public sealed class ActorSystem : IDisposable, IAsyncDisposable
+public sealed class ActorSystem : IAsyncDisposable
 {
     private readonly AsyncLocal<ActorCallContext?> currentCallContext = new();
     private readonly ConcurrentDictionary<ActorId, ActorCell> actors = new();
@@ -25,7 +25,11 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
     internal ActorCallContext? CurrentCallContext
     {
-        get => currentCallContext.Value;
+        get
+        {
+            ActorCallContext? context = currentCallContext.Value;
+            return context is { IsActive: true } ? context : null;
+        }
         set => currentCallContext.Value = value;
     }
 
@@ -53,17 +57,17 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         this.options = options;
     }
 
-    public ActorHandle<TMessage> Spawn<TMessage>(IActor<TMessage> actor)
+    public ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor)
     {
-        return Spawn(actor, null);
+        return SpawnAsync(actor, null);
     }
 
-    public ActorHandle<TMessage> Spawn<TMessage>(string name, IActor<TMessage> actor)
+    public ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(string name, IActor<TMessage> actor)
     {
-        return Spawn(name, actor, null);
+        return SpawnAsync(name, actor, null);
     }
 
-    public ActorHandle<TMessage> Spawn<TMessage>(
+    public async ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(
         string name,
         IActor<TMessage> actor,
         ActorSpawnOptions? spawnOptions)
@@ -71,19 +75,31 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         ValidateActorName(name);
         ArgumentNullException.ThrowIfNull(actor);
 
-        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, name);
+        ActorRef actorRef = await SpawnCoreAsync(
+            new TypedActorAdapter<TMessage>(actor),
+            typeof(TMessage),
+            spawnOptions,
+            name).ConfigureAwait(false);
         return new ActorHandle<TMessage>(actorRef);
     }
 
-    public ActorHandle<TMessage> Spawn<TMessage>(IActor<TMessage> actor, ActorSpawnOptions? spawnOptions)
+    public async ValueTask<ActorHandle<TMessage>> SpawnAsync<TMessage>(IActor<TMessage> actor, ActorSpawnOptions? spawnOptions)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        ActorRef actorRef = SpawnCore(new TypedActorAdapter<TMessage>(actor), typeof(TMessage), spawnOptions, null);
+        ActorRef actorRef = await SpawnCoreAsync(
+            new TypedActorAdapter<TMessage>(actor),
+            typeof(TMessage),
+            spawnOptions,
+            null).ConfigureAwait(false);
         return new ActorHandle<TMessage>(actorRef);
     }
 
-    private ActorRef SpawnCore(IActor actor, Type messageType, ActorSpawnOptions? spawnOptions, string? name)
+    private async ValueTask<ActorRef> SpawnCoreAsync(
+        IActor actor,
+        Type messageType,
+        ActorSpawnOptions? spawnOptions,
+        string? name)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(actor);
@@ -114,7 +130,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
         try
         {
-            cell.StartAsync().AsTask().GetAwaiter().GetResult();
+            await cell.StartAsync().ConfigureAwait(false);
         }
         catch
         {
@@ -164,6 +180,14 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
 
     internal ActorSendResult TrySend(ActorId target, object message)
     {
+        return TrySend(target, message, GetCurrentActivityContext());
+    }
+
+    internal ActorSendResult TrySend(
+        ActorId target,
+        object message,
+        ActivityContext parentActivityContext)
+    {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(message);
 
@@ -184,7 +208,7 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
         if (cell.TrySend(new Envelope(
             message,
             callChain: GetCurrentCallChain(),
-            parentActivityContext: GetCurrentActivityContext())))
+            parentActivityContext: parentActivityContext)))
         {
             return ActorSendResult.Accepted;
         }
@@ -782,11 +806,6 @@ public sealed class ActorSystem : IDisposable, IAsyncDisposable
     internal static string GetMessageType(object message)
     {
         return message.GetType().FullName ?? message.GetType().Name;
-    }
-
-    public void Dispose()
-    {
-        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
     public async ValueTask DisposeAsync()

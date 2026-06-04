@@ -2,7 +2,7 @@
 
 `ULinkActor.SourceGenerator` generates typed `ActorSystem` spawn extension methods for public ULinkActor typed actors and actor client proxies for `[ActorClient]` interfaces.
 
-It is intended to reduce repeated `Spawn<TMessage>(...)` calls when your project defines actors that implement `IActor<TMessage>`.
+It is intended to reduce repeated `SpawnAsync<TMessage>(...)` calls when your project defines actors that implement `IActor<TMessage>`.
 
 The generator is a compile-time convenience layer. It must emit ordinary C# that calls the public ULinkActor runtime APIs, and it must not require runtime reflection, dynamic proxies, or dynamic method invocation.
 
@@ -16,7 +16,7 @@ Install the runtime package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.4.0" />
+  <PackageReference Include="ULinkActor" Version="0.5.0" />
 </ItemGroup>
 ```
 
@@ -54,9 +54,9 @@ The generator creates a typed spawn extension method:
 ```csharp
 using ULinkActor;
 
-using ActorSystem system = new();
+await using ActorSystem system = new();
 
-ActorHandle<RoomMessage> room = system.SpawnRoomActor(new RoomActor());
+ActorHandle<RoomMessage> room = await system.SpawnRoomActorAsync(new RoomActor());
 
 await room.Ref.Send(new JoinRoom(10001));
 ```
@@ -64,7 +64,7 @@ await room.Ref.Send(new JoinRoom(10001));
 You can also register the actor by name:
 
 ```csharp
-ActorHandle<RoomMessage> room = system.SpawnRoomActor("room-1", new RoomActor());
+ActorHandle<RoomMessage> room = await system.SpawnRoomActorAsync("room-1", new RoomActor());
 ```
 
 ## Generated Method Shape
@@ -72,9 +72,9 @@ ActorHandle<RoomMessage> room = system.SpawnRoomActor("room-1", new RoomActor())
 For a public actor named `RoomActor` that implements `IActor<RoomMessage>`, the generator emits:
 
 ```csharp
-ActorHandle<RoomMessage> SpawnRoomActor(this ActorSystem system, RoomActor actor, ActorSpawnOptions? options = null);
+ValueTask<ActorHandle<RoomMessage>> SpawnRoomActorAsync(this ActorSystem system, RoomActor actor, ActorSpawnOptions? options = null);
 
-ActorHandle<RoomMessage> SpawnRoomActor(this ActorSystem system, string name, RoomActor actor, ActorSpawnOptions? options = null);
+ValueTask<ActorHandle<RoomMessage>> SpawnRoomActorAsync(this ActorSystem system, string name, RoomActor actor, ActorSpawnOptions? options = null);
 ```
 
 ## Generation Rules
@@ -103,7 +103,7 @@ public interface IRoomActorClient
 The generator emits a public client message interface, public request records that implement it, and an `ActorRef<TMessage>` extension method:
 
 ```csharp
-ActorHandle<RoomActorClientMessage> roomActor = system.Spawn<RoomActorClientMessage>(new RoomActor());
+ActorHandle<RoomActorClientMessage> roomActor = await system.SpawnAsync<RoomActorClientMessage>(new RoomActor());
 ActorCallOptions callOptions = new(
     QueueTimeout: TimeSpan.FromMilliseconds(50),
     ResponseTimeout: TimeSpan.FromSeconds(1));

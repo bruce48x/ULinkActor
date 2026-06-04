@@ -99,6 +99,78 @@ public sealed class ActorClientGeneratorTests
         Assert.DoesNotContain("global::System.TimeSpan callTimeout", generatedSource, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Typed_spawn_generator_emits_async_spawn_extensions()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public sealed class RoomActor : IActor<RoomMessage>
+            {
+                public ValueTask OnMessage(ActorContext<RoomMessage> ctx, RoomMessage message)
+                {
+                    return ValueTask.CompletedTask;
+                }
+            }
+
+            public sealed record RoomMessage;
+            """;
+
+        string generatedSource = GetTypedSpawnGeneratedSource(source);
+
+        Assert.Contains("ValueTask<global::ULinkActor.ActorHandle<global::RoomMessage>> SpawnRoomActorAsync", generatedSource, StringComparison.Ordinal);
+        Assert.Contains("return system.SpawnAsync<global::RoomMessage>(actor, options);", generatedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(" SpawnRoomActor(", generatedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generator_implements_inherited_actor_client_methods()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            public interface IBaseClient
+            {
+                ValueTask<int> Query(int value);
+            }
+
+            [ActorClient]
+            public interface IInheritedClient : IBaseClient
+            {
+                ValueTask Send(string value);
+            }
+            """;
+
+        (string generatedSource, Diagnostic[] diagnostics) = GetGeneratedSourceAndCompilationDiagnostics(source);
+
+        Assert.Contains("InheritedClientQueryRequest", generatedSource, StringComparison.Ordinal);
+        Assert.Contains(" Query(", generatedSource, StringComparison.Ordinal);
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Generator_escapes_keyword_method_and_parameter_names()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using ULinkActor;
+
+            [ActorClient]
+            public interface IKeywordClient
+            {
+                ValueTask @class(int @event);
+            }
+            """;
+
+        (string generatedSource, Diagnostic[] diagnostics) = GetGeneratedSourceAndCompilationDiagnostics(source);
+
+        Assert.Contains(" @class(", generatedSource, StringComparison.Ordinal);
+        Assert.Contains(" @event", generatedSource, StringComparison.Ordinal);
+        Assert.Empty(diagnostics);
+    }
+
     private static Diagnostic[] GetGeneratorDiagnostics(string source)
     {
         SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
@@ -137,6 +209,54 @@ public sealed class ActorClientGeneratorTests
             .Single(static generated => generated.HintName == "ULinkActorClientExtensions.g.cs")
             .SourceText
             .ToString();
+    }
+
+    private static string GetTypedSpawnGeneratedSource(string source)
+    {
+        SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "TypedSpawnGeneratorOutputTests",
+            [syntaxTree],
+            GetMetadataReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new TypedActorSpawnGenerator());
+        GeneratorDriverRunResult result = driver.RunGenerators(compilation).GetRunResult();
+
+        return Assert.Single(result.Results)
+            .GeneratedSources
+            .Single(static generated => generated.HintName == "ULinkActorTypedActorSpawnExtensions.g.cs")
+            .SourceText
+            .ToString();
+    }
+
+    private static (string GeneratedSource, Diagnostic[] Diagnostics) GetGeneratedSourceAndCompilationDiagnostics(string source)
+    {
+        SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "ActorClientGeneratorCompilationTests",
+            [syntaxTree],
+            GetMetadataReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ActorClientGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(
+            compilation,
+            out Compilation updatedCompilation,
+            out ImmutableArray<Diagnostic> generatorDiagnostics);
+        GeneratorDriverRunResult result = driver.GetRunResult();
+
+        string generatedSource = Assert.Single(result.Results)
+            .GeneratedSources
+            .Single(static generated => generated.HintName == "ULinkActorClientExtensions.g.cs")
+            .SourceText
+            .ToString();
+        Diagnostic[] diagnostics = generatorDiagnostics
+            .Concat(updatedCompilation.GetDiagnostics())
+            .Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .ToArray();
+
+        return (generatedSource, diagnostics);
     }
 
     private static IEnumerable<MetadataReference> GetMetadataReferences()

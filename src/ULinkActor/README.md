@@ -8,7 +8,7 @@ It focuses on single-process service runtime scenarios where long-lived state ob
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="ULinkActor" Version="0.4.0" />
+  <PackageReference Include="ULinkActor" Version="0.5.0" />
 </ItemGroup>
 ```
 
@@ -44,9 +44,9 @@ Spawn the actor and send messages:
 ```csharp
 using ULinkActor;
 
-using ActorSystem system = new();
+await using ActorSystem system = new();
 
-ActorHandle<RoomMessage> room = system.Spawn<RoomMessage>(new RoomActor());
+ActorHandle<RoomMessage> room = await system.SpawnAsync<RoomMessage>(new RoomActor());
 
 await room.Ref.Send(new JoinRoom(10001));
 ```

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+### Changed
+
+- **Actor system lifecycle API** (breaking): `ActorSystem` is now async-only. Use `await using ActorSystem system = new();` and `await system.SpawnAsync<TMessage>(...)`.
+- **Generated typed spawn extensions** (breaking): generated spawn helpers now use the `SpawnXxxAsync(...)` naming shape and return `ValueTask<ActorHandle<TMessage>>`.
+
+### Removed
+
+- **Sync-over-async lifecycle paths** (breaking): removed synchronous `ActorSystem.Spawn(...)` and `ActorSystem.Dispose()` so startup hooks, mailbox drain, and disposal remain explicitly asynchronous.
+
 ## 0.4.0
 
 ### Added
