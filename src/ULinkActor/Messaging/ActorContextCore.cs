@@ -7,30 +7,27 @@ namespace ULinkActor.Messaging;
 internal sealed class ActorContextCore
 {
     private readonly ActorCell cell;
-    private readonly Envelope envelope;
+    private readonly ActorResponseSlot responseSlot;
 
     internal ActorContextCore(ActorRef self, ActorCell cell, Envelope envelope)
     {
         Self = self;
         this.cell = cell;
-        this.envelope = envelope;
+        responseSlot = new ActorResponseSlot(envelope.Response);
     }
 
     internal ActorRef Self { get; }
 
-    internal bool HasPendingResponse => envelope.Response is not null;
+    internal bool HasPendingResponse => responseSlot.HasPendingResponse;
 
     public void Respond<TResponse>(TResponse response)
     {
-        if (!TryRespond(response))
-        {
-            throw new InvalidOperationException("The current message does not have a pending response or was already completed.");
-        }
+        responseSlot.Respond(response);
     }
 
     public bool TryRespond<TResponse>(TResponse response)
     {
-        return envelope.Response?.TrySetResult(response) == true;
+        return responseSlot.TryRespond(response);
     }
 
     public IDisposable ScheduleOnce(object message, TimeSpan dueTime)

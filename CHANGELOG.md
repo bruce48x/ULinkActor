@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.11
+
+### Changed
+
+- Refactored actor response handling into an internal response slot while preserving context response behavior.
+
 ## 0.5.10
 
 ### Changed
