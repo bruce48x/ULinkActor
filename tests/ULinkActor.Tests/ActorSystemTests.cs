@@ -12,7 +12,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new();
         ProbeActor actor = new();
-        ActorRef<object> actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor).Ref;
 
         await actorRef.Send("hello");
 
@@ -23,7 +23,7 @@ public sealed class ActorSystemTests
     public async Task Call_returns_actor_response()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         string response = await actorRef.Call<string>("ping", DefaultCallOptions);
 
@@ -46,7 +46,7 @@ public sealed class ActorSystemTests
     public async Task Call_times_out_when_actor_does_not_respond()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor()).Ref;
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
             await actorRef.Call<string>("ping", CallOptions(TimeSpan.FromMilliseconds(20))));
@@ -58,7 +58,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
         system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
-        ActorRef<object> actorRef = system.Spawn(new IgnoringActor());
+        ActorRef<object> actorRef = system.Spawn(new IgnoringActor()).Ref;
         ActorCallOptions options = new(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(20));
 
         TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
@@ -120,7 +120,7 @@ public sealed class ActorSystemTests
     public async Task Call_allows_zero_queue_timeout_when_mailbox_has_capacity()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
         ActorCallOptions options = new(TimeSpan.Zero, TimeSpan.FromSeconds(1));
 
         string response = await actorRef.Call<string>("ping", options);
@@ -154,7 +154,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         List<ActorCallTimeout> timeouts = new();
         system.CallTimedOut += timeouts.Add;
-        ActorRef<object> actorRef = system.Spawn(new SelfCallingActor());
+        ActorRef<object> actorRef = system.Spawn(new SelfCallingActor()).Ref;
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await actorRef.Call<string>(new StartSelfCall(), DefaultCallOptions));
@@ -170,8 +170,8 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
         TaskCompletionSource<ActorCallTimeout> timedOut = new(TaskCreationOptions.RunContinuationsAsynchronously);
         system.CallTimedOut += timeout => timedOut.TrySetResult(timeout);
-        ActorRef<object> downstream = system.Spawn(new IgnoringActor());
-        ActorRef<object> upstream = system.Spawn(new DownstreamCallingActor(downstream));
+        ActorRef<object> downstream = system.Spawn(new IgnoringActor()).Ref;
+        ActorRef<object> upstream = system.Spawn(new DownstreamCallingActor(downstream)).Ref;
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
             await upstream.Call<string>(new StartDownstreamCall(), DefaultCallOptions));
@@ -189,7 +189,7 @@ public sealed class ActorSystemTests
     public async Task Mailbox_processes_messages_in_send_order()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new OrderingActor());
+        ActorRef<object> actorRef = system.Spawn(new OrderingActor()).Ref;
 
         for (int i = 0; i < 64; i++)
         {
@@ -205,7 +205,7 @@ public sealed class ActorSystemTests
     public async Task Mailbox_never_executes_same_actor_concurrently()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new ConcurrencyProbeActor());
+        ActorRef<object> actorRef = system.Spawn(new ConcurrencyProbeActor()).Ref;
 
         Task[] sends = Enumerable.Range(0, 32)
             .Select(i => actorRef.Send(i).AsTask())
@@ -222,7 +222,7 @@ public sealed class ActorSystemTests
     public async Task Timer_messages_are_dispatched_through_mailbox()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new TimerActor());
+        ActorRef<object> actorRef = system.Spawn(new TimerActor()).Ref;
 
         await actorRef.Send(new StartTimer());
         await Task.Delay(80);
@@ -237,7 +237,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new(new ActorSystemOptions { MailboxCapacity = 1 });
         BlockingActor actor = new();
-        ActorRef<object> actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor).Ref;
 
         await actorRef.Send("first");
 
@@ -373,7 +373,7 @@ public sealed class ActorSystemTests
 
         TaskCompletionSource<SlowMessage> detected = new(TaskCreationOptions.RunContinuationsAsynchronously);
         system.SlowMessageDetected += message => detected.TrySetResult(message);
-        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30)));
+        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30))).Ref;
 
         await actorRef.Send("slow");
 
@@ -429,7 +429,7 @@ public sealed class ActorSystemTests
         {
             SlowMessageThreshold = TimeSpan.FromMilliseconds(10)
         });
-        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30)));
+        ActorRef<object> actorRef = system.Spawn(new SlowActor(TimeSpan.FromMilliseconds(30))).Ref;
 
         await actorRef.Send("slow");
 
@@ -443,7 +443,7 @@ public sealed class ActorSystemTests
     public async Task Typed_actor_ref_sends_and_calls_typed_messages()
     {
         using ActorSystem system = new();
-        ActorRef<CounterMessage> counter = system.Spawn<CounterMessage>(new CounterActor());
+        ActorRef<CounterMessage> counter = system.Spawn<CounterMessage>(new CounterActor()).Ref;
 
         await counter.Send(new Add(2));
         int value = await counter.Call<int>(new GetCounter(), DefaultCallOptions);
@@ -465,6 +465,14 @@ public sealed class ActorSystemTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await counter.Ref.Send(new Add(1)));
+    }
+
+    [Fact]
+    public void Actor_handle_does_not_convert_to_actor_ref()
+    {
+        Assert.DoesNotContain(
+            typeof(ActorHandle<object>).GetMethods(),
+            static method => method.IsSpecialName && method.Name is "op_Implicit" or "op_Explicit");
     }
 
     [Fact]
@@ -623,7 +631,7 @@ public sealed class ActorSystemTests
         ActivitySource.AddActivityListener(listener);
 
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         string response = await actorRef.Call<string>("trace-me", DefaultCallOptions);
         Activity activity = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -657,7 +665,7 @@ public sealed class ActorSystemTests
         ActivitySource.AddActivityListener(listener);
 
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         using Activity? parent = testSource.StartActivity("parent");
         Assert.NotNull(parent);
@@ -705,7 +713,7 @@ public sealed class ActorSystemTests
         ActivitySource.AddActivityListener(listener);
 
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn(new TimerActor());
+        ActorRef<object> actorRef = system.Spawn(new TimerActor()).Ref;
 
         using Activity? parent = testSource.StartActivity("timer-parent");
         Assert.NotNull(parent);
@@ -748,8 +756,8 @@ public sealed class ActorSystemTests
         BlockingActor blocking = new();
         ActorHandle<object> blockedHandle = system.Spawn(blocking);
         ActorRef<object> blocked = blockedHandle.Ref;
-        ActorRef<object> echo = system.Spawn(new EchoActor());
-        ActorRef<object> ignoring = system.Spawn(new IgnoringActor());
+        ActorRef<object> echo = system.Spawn(new EchoActor()).Ref;
+        ActorRef<object> ignoring = system.Spawn(new IgnoringActor()).Ref;
         ActorHandle<object> stoppedHandle = system.Spawn(new IgnoringActor());
         ActorRef<object> stopped = stoppedHandle.Ref;
 
@@ -802,7 +810,7 @@ public sealed class ActorSystemTests
     public async Task Named_actor_can_be_resolved_and_used()
     {
         using ActorSystem system = new();
-        ActorRef<object> spawned = system.Spawn("echo", new EchoActor());
+        ActorRef<object> spawned = system.Spawn("echo", new EchoActor()).Ref;
 
         ActorRef<object> resolved = system.GetActor<object>("echo");
         string response = await resolved.Call<string>("named", DefaultCallOptions);
@@ -825,7 +833,7 @@ public sealed class ActorSystemTests
     public async Task Stop_by_name_removes_named_actor_from_registry()
     {
         using ActorSystem system = new();
-        ActorRef<object> actorRef = system.Spawn("echo", new EchoActor());
+        ActorRef<object> actorRef = system.Spawn("echo", new EchoActor()).Ref;
 
         await system.Stop("echo");
 
@@ -838,7 +846,7 @@ public sealed class ActorSystemTests
     public async Task Typed_named_actor_can_be_resolved_and_used()
     {
         using ActorSystem system = new();
-        ActorRef<CounterMessage> spawned = system.Spawn<CounterMessage>("counter", new CounterActor());
+        ActorRef<CounterMessage> spawned = system.Spawn<CounterMessage>("counter", new CounterActor()).Ref;
 
         ActorRef<CounterMessage> resolved = system.GetActor<CounterMessage>("counter");
         await resolved.Send(new Add(3));
@@ -863,7 +871,7 @@ public sealed class ActorSystemTests
         using ActorSystem system = new();
 
         ActorRef<GeneratedCounterMessage> counter = system.SpawnGeneratedCounterActor(
-            new GeneratedCounterActor());
+            new GeneratedCounterActor()).Ref;
 
         await counter.Send(new GeneratedAdd(9));
         int value = await counter.Call<int>(new GeneratedGetCounter(), DefaultCallOptions);
@@ -876,7 +884,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new();
         ActorRef<GeneratedCounterClientMessage> counterActor = system.Spawn<GeneratedCounterClientMessage>(
-            new GeneratedCounterClientActor());
+            new GeneratedCounterClientActor()).Ref;
         IGeneratedCounterClient counter = counterActor.AsGeneratedCounterClient(DefaultCallOptions);
 
         await counter.Add(11);
@@ -972,7 +980,7 @@ public sealed class ActorSystemTests
     {
         using ActorSystem system = new();
         OffloadActor actor = new();
-        ActorRef<object> actorRef = system.Spawn(actor);
+        ActorRef<object> actorRef = system.Spawn(actor).Ref;
 
         await actorRef.Send(new StartOffload(21));
         await Eventually(() => actor.Events.Contains("complete"));
@@ -1037,7 +1045,7 @@ public sealed class ActorSystemTests
             MessageInterceptor = interceptor
         });
 
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         string response = await actorRef.Call<string>("hello", DefaultCallOptions);
 
@@ -1058,7 +1066,7 @@ public sealed class ActorSystemTests
             MessageInterceptor = interceptor
         });
 
-        ActorRef<object> actorRef = system.Spawn(new ThrowingActor());
+        ActorRef<object> actorRef = system.Spawn(new ThrowingActor()).Ref;
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await actorRef.Call<string>("fail", DefaultCallOptions));
@@ -1079,7 +1087,7 @@ public sealed class ActorSystemTests
         });
         system.ObserverErrorPublished += error => observerError.TrySetResult(error);
 
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         string response = await actorRef.Call<string>("hello", DefaultCallOptions);
         ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -1100,7 +1108,7 @@ public sealed class ActorSystemTests
         });
         system.ObserverErrorPublished += error => observerError.TrySetResult(error);
 
-        ActorRef<object> actorRef = system.Spawn(new EchoActor());
+        ActorRef<object> actorRef = system.Spawn(new EchoActor()).Ref;
 
         string response = await actorRef.Call<string>("hello", DefaultCallOptions);
         ActorObserverError error = await observerError.Task.WaitAsync(TimeSpan.FromSeconds(1));

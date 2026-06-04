@@ -155,6 +155,8 @@ Acceptable compile-time generation targets include:
 
 Generated actor clients are local runtime ergonomics only. They must not become transparent remote actor proxies or hide cluster routing, serialization, network latency, timeout, retry, or remote backpressure costs.
 
+Do not add implicit conversions between owner/admin handles and message-only refs. Code should use `.Ref` explicitly when downgrading `ActorHandle<TMessage>` to `ActorRef<TMessage>`.
+
 ### Roslyn Dependency Boundary
 
 Roslyn dependencies must stay in generator or analyzer projects. The `ULinkActor` runtime assembly must not reference Roslyn packages. If generators or analyzers are distributed through the main `ULinkActor` package, they should be packed under analyzer paths such as:

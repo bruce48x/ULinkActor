@@ -77,7 +77,7 @@ This is the .NET equivalent of skynet's philosophy of catching problems at the e
 
 ### 8. Strongly typed actor APIs
 
-Actor APIs are typed-only. Actors implement `IActor<TMessage>`, callers hold message-only `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type. Spawn returns `ActorHandle<TMessage>` for lifecycle and diagnostics so communication references do not imply management authority. `ActorContext<TMessage>` exposes only current-turn capabilities such as `Self`, response, and timers; it does not expose the full `ActorSystem`. There is no untyped `object` dispatch path and no runtime `dynamic` fallback.
+Actor APIs are typed-only. Actors implement `IActor<TMessage>`, callers hold message-only `ActorRef<TMessage>`, timers accept `TMessage`, and named actor lookup requires the expected message type. Spawn returns `ActorHandle<TMessage>` for lifecycle and diagnostics so communication references do not imply management authority; passing a message-only reference requires explicit `.Ref`. `ActorContext<TMessage>` exposes only current-turn capabilities such as `Self`, response, and timers; it does not expose the full `ActorSystem`. There is no untyped `object` dispatch path and no runtime `dynamic` fallback.
 
 This eliminates a class of errors — wrong message types, missing handlers, accidental type coercion — at compile time rather than at runtime.
 
@@ -130,4 +130,4 @@ Actor message handlers return `ValueTask` to avoid allocations for synchronous c
 
 ## Versioning
 
-ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.6.
+ULinkActor follows semantic versioning. Breaking changes (API removal, behavioral changes like CircularWait → immediate throw) increment the major version. The current development version is 0.3.7.

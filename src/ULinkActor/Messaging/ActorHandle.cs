@@ -16,13 +16,6 @@ public sealed class ActorHandle<TMessage>
 
     public ActorRef<TMessage> Ref { get; }
 
-    public static implicit operator ActorRef<TMessage>(ActorHandle<TMessage> handle)
-    {
-        ArgumentNullException.ThrowIfNull(handle);
-
-        return handle.Ref;
-    }
-
     public ValueTask Stop()
     {
         return inner.Stop();
