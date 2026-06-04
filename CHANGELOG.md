@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.14
+
+### Changed
+
+- Refactored actor call response waiting and response type conversion into an internal response waiter.
+
 ## 0.5.13
 
 ### Changed
